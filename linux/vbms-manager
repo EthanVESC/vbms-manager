@@ -1,0 +1,7 @@
+#!/bin/sh
+# VBMS Manager for Linux: runs the app with the Python bundled next to this file.
+#   ./vbms-manager                 opens http://127.0.0.1:8642 in your browser
+#   ./vbms-manager --lan           also reachable from phones on your network (remembered)
+#   ./vbms-manager --help          all options
+here=$(dirname "$(readlink -f "$0")")
+exec "$here/runtime/bin/python3" -I -B -u "$here/app/vbms_manager.py" "$@"

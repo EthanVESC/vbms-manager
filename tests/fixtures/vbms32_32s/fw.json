@@ -1,0 +1,12 @@
+{
+  "major": 7,
+  "minor": 0,
+  "hw_name": "VBMS32",
+  "mac": "00:00:00:00:00:00",
+  "uuid": "000000000000000000000000",
+  "test_version": 0,
+  "hw_type": 2,
+  "custom_config_num": 1,
+  "fw_name": "micro",
+  "version": "7.00"
+}

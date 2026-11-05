@@ -1,0 +1,20 @@
+# VBMS Manager with Docker Compose:  docker compose up -d   then  docker compose logs
+# for the address to open and the pairing code. See the Docker section of README.md.
+services:
+  vbms-manager:
+    build: .
+    image: vbms-manager
+    container_name: vbms-manager
+    # Host networking (Linux) lets it search your network for boards. On Docker Desktop, or if you
+    # prefer, delete this line and use the `ports` lines instead, then add boards by IP.
+    network_mode: host
+    # ports:
+    #   - "8642:8642"
+    volumes:
+      - vbms-data:/data
+    restart: unless-stopped
+    # Extra options go here, e.g. a different port:
+    # command: ["--port", "9000"]
+
+volumes:
+  vbms-data:

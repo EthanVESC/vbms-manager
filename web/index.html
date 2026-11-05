@@ -1,0 +1,188 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#0f1115" media="(prefers-color-scheme: dark)">
+<meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)">
+<title>VBMS Manager</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Crect x='3' y='6' width='16' height='12' rx='2' fill='none' stroke='%232563eb' stroke-width='2'/%3E%3Crect x='19' y='10' width='2.5' height='4' rx='1' fill='%232563eb'/%3E%3Cpath d='M11 8.5 8 12.5h3l-1 3.5 3.5-4.5h-3l1-3.5z' fill='%232563eb'/%3E%3C/svg%3E">
+<link rel="stylesheet" href="/style.css">
+<script>window.VBMS_TOKEN = "__VBMS_TOKEN__";</script>
+</head>
+<body>
+<header class="top">
+  <div class="brand">
+    <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><rect x="3" y="6" width="16" height="12" rx="2" fill="none" stroke="currentColor" stroke-width="2"/><rect x="19" y="10" width="2.5" height="4" rx="1" fill="currentColor"/><path d="M11 8.5 8 12.5h3l-1 3.5 3.5-4.5h-3l1-3.5z" fill="currentColor"/></svg>
+    <h1>VBMS Manager</h1>
+  </div>
+  <nav class="pills" id="pills" aria-label="Boards"></nav>
+  <div class="topright">
+    <button type="button" class="ghost" id="btnAdd" aria-label="Add board">+<span class="hide-sm">&nbsp;Add board</span></button>
+    <button type="button" class="ghost" id="btnGuide"><span class="hide-sm">Setup&nbsp;</span>Guide</button>
+    <button type="button" class="ghost" id="btnLogs">Log</button>
+    <button type="button" class="ghost" id="btnAlerts">Alerts</button>
+    <button type="button" class="ghost" id="btnDevices">Devices</button>
+    <button type="button" class="ghost" id="btnPrefs">Preferences</button>
+    <button type="button" class="chip warn" id="skipChip" hidden title="Write confirmations are off · click to change">Confirmations off</button>
+  </div>
+</header>
+
+<div id="viewerBar" class="viewerbar" hidden>View-only on this device. <button type="button" class="small" id="viewerPair">Pair to make changes</button></div>
+<div id="lost" class="notice bad" hidden></div>
+<div id="awakeNotice" class="notice" hidden></div>
+<div id="discovered" class="discovered" hidden></div>
+<div id="discoveryError" class="notice" hidden></div>
+
+<nav class="tabs" id="tabs" role="tablist" aria-label="Board sections" hidden></nav>
+<main id="view" class="view"></main>
+
+<div id="empty" class="empty" hidden>
+  <h2>No boards yet</h2>
+  <p>Get your VBMS on WiFi. VBMS Manager searches your network for boards every couple of minutes, and boards it finds show up above with an <b>Add</b> button. You can also add a board by IP.</p>
+  <p><button type="button" data-guide="0">Open the setup guide</button></p>
+  <p class="muted small">Only one app can talk to a board over WiFi at a time. Disconnect VESC Tool from the board first.</p>
+  <div class="scanline" id="emptyScan"></div>
+</div>
+
+<dialog id="addDlg">
+  <form method="dialog" class="dlg" id="addForm">
+    <h2>Add a board</h2>
+    <label class="field">Board IP address<input id="addHost" placeholder="e.g. 192.168.1.50" autocomplete="off" spellcheck="false" inputmode="decimal"></label>
+    <p class="muted small">Not sure? See step 4 of the <button type="button" class="linklike" data-guide="3">setup guide</button>.</p>
+    <div class="scanline" id="addScan"></div>
+    <div class="dlg-actions"><button type="button" class="ghost" id="addCancel">Cancel</button><button type="submit">Add</button></div>
+  </form>
+</dialog>
+
+<dialog id="sheetDlg" class="sheet">
+  <form method="dialog" class="dlg">
+    <div class="dlg-head"><h2 id="sheetTitle">Charge limit</h2><button value="cancel" class="icon ghost" aria-label="Close">✕</button></div>
+    <div id="sheetBody"></div>
+    <div class="dlg-actions"><button value="cancel" class="ghost">Cancel</button><button id="sheetOk" value="ok">Set…</button></div>
+  </form>
+</dialog>
+
+<dialog id="confirmDlg">
+  <form method="dialog" class="dlg">
+    <h2>Confirm write to BMS</h2>
+    <div id="confirmBody"></div>
+    <label class="check"><input type="checkbox" id="confirmCheck"> I've checked the board, the values and that this is what I want written to the BMS.</label>
+    <label class="field" id="confirmNameWrap" hidden><span>This includes a dangerous change. Type <b id="confirmNameLabel"></b> to confirm.</span><input id="confirmName" autocomplete="off" spellcheck="false"></label>
+    <div class="dlg-actions">
+      <button value="cancel" class="ghost">Cancel</button>
+      <button value="ok" id="confirmOk" class="danger" disabled>Write to BMS</button>
+    </div>
+  </form>
+</dialog>
+
+<dialog id="schedDlg">
+  <form method="dialog" class="dlg">
+    <h2 id="schedTitle">Approve charge schedule</h2>
+    <div id="schedBody"></div>
+    <label class="check"><input type="checkbox" id="schedCheck"> <span id="schedCheckText">I approve VBMS Manager making these changes to this BMS automatically at these times.</span></label>
+    <div class="dlg-actions"><button value="cancel" class="ghost">Cancel</button><button value="ok" id="schedOk" class="danger" disabled>Save and turn on</button></div>
+  </form>
+</dialog>
+
+<dialog id="ruleDlg">
+  <form method="dialog" class="dlg">
+    <div class="dlg-head"><h2 id="ruleTitle">Schedule item</h2><button value="cancel" class="icon ghost" aria-label="Close">✕</button></div>
+    <div id="ruleForm" class="ruleform"></div>
+    <p class="muted small">Nothing changes on the board until you save the schedule.</p>
+    <div class="dlg-actions"><button value="cancel" class="ghost">Cancel</button><button value="ok" id="ruleOk">Done</button></div>
+  </form>
+</dialog>
+
+<dialog id="wizDlg" class="wide">
+  <form method="dialog" class="dlg">
+    <div class="dlg-head"><h2>Board setup</h2><button value="cancel" class="icon ghost" aria-label="Close">✕</button></div>
+    <ol class="steps" id="wizSteps"></ol>
+    <div id="wizBody" class="wizbody"></div>
+    <p class="muted small">Board setup is saved in VBMS Manager. It doesn't write anything to the BMS, except the optional add-on if you install it.</p>
+    <div class="dlg-actions">
+      <button type="button" class="ghost" id="wizBack">Back</button>
+      <button type="button" class="ghost" id="wizSkip">Skip for now</button>
+      <button type="button" class="ghost" id="wizLimit">Set a charge limit</button>
+      <button type="button" id="wizNext">Next</button>
+    </div>
+  </form>
+</dialog>
+
+<dialog id="guideDlg" class="wide">
+  <form method="dialog" class="dlg">
+    <div class="dlg-head"><h2>Setup guide: get your VBMS on WiFi</h2><button value="cancel" class="icon ghost" aria-label="Close">✕</button></div>
+    <div class="guide"><ol class="guidenav" id="guideNav"></ol><div class="guidebody" id="guideBody"></div></div>
+    <div class="dlg-actions"><button type="button" class="ghost" id="guidePrev">Back</button><button type="button" id="guideNext">Next</button></div>
+  </form>
+</dialog>
+
+<dialog id="devDlg">
+  <form method="dialog" class="dlg">
+    <div class="dlg-head"><h2>Devices</h2><button value="cancel" class="icon ghost" aria-label="Close">✕</button></div>
+    <div id="devBody"></div>
+  </form>
+</dialog>
+
+<dialog id="msgDlg">
+  <form method="dialog" class="dlg">
+    <h2 id="msgTitle"></h2>
+    <div id="msgBody"></div>
+    <div class="dlg-actions"><button value="ok">OK</button></div>
+  </form>
+</dialog>
+
+<dialog id="logDlg" class="wide">
+  <form method="dialog" class="dlg">
+    <div class="dlg-head"><h2>Log</h2><button value="cancel" class="icon ghost" aria-label="Close">✕</button></div>
+    <div class="seg"><button type="button" data-log="changes" class="on">Changes</button><button type="button" data-log="events">Board events</button><button type="button" data-log="recording">Recording</button></div>
+    <div id="logBody" class="logbody"></div>
+  </form>
+</dialog>
+
+<dialog id="alertDlg">
+  <form method="dialog" class="dlg">
+    <h2>Alerts</h2>
+    <p class="muted small">Alerts show on the board, go in the event log, and, if you allow it, appear as notifications while this page is open. They also set when a cell is drawn as an outlier. Saved in VBMS Manager, so every paired device uses the same ones.</p>
+    <label class="row">Cell imbalance above <input type="number" id="alDelta" min="5" max="500" step="1"> mV</label>
+    <label class="row">Any temperature above <input type="number" id="alTemp" min="20" max="100" step="1"> °C</label>
+    <label class="row">While charging, max cell above charge end by <input type="number" id="alOver" min="0" max="200" step="1"> mV</label>
+    <fieldset class="checks-f"><legend class="small muted">Notifications</legend>
+      <label class="check"><input type="checkbox" id="alNotify"> When an alert above is raised</label>
+      <label class="check"><input type="checkbox" id="alDone"> When a charge finishes (reached the limit)</label>
+      <label class="check"><input type="checkbox" id="alEarly"> When charging stops early (unplugged, paused, fault, temperature)</label>
+      <label class="check"><input type="checkbox" id="alOffline"> When a board goes offline while charging</label></fieldset>
+    <div class="dlg-actions"><button value="cancel" class="ghost">Cancel</button><button type="button" id="alSave">Save</button></div>
+  </form>
+</dialog>
+
+<dialog id="prefDlg">
+  <form method="dialog" class="dlg">
+    <div class="dlg-head"><h2>Preferences</h2><button value="cancel" class="icon ghost" aria-label="Close">✕</button></div>
+    <div class="prefrow"><div><b>Ask before every write</b><p class="muted small">The confirmation dialogs before charge limits, settings, live Pause/Allow and balancing commands, schedules and timers.</p></div>
+      <label class="switch"><input type="checkbox" id="prefConfirm"><span></span></label></div>
+    <p class="small" id="prefNote"></p>
+  </form>
+</dialog>
+
+<dialog id="skipDlg">
+  <form method="dialog" class="dlg">
+    <h2>Turn off write confirmations?</h2>
+    <div class="risk danger"><b>⛔ Read this first.</b> With confirmations off, VBMS Manager stops asking before it changes your boards. One tap or click is enough:</div>
+    <ul class="small">
+      <li>Charge limits, charging and balancing settings and graph drags are <b>written to the BMS's flash straight away</b>.</li>
+      <li>The charging and balancing toggles <b>pause, allow, stop or start immediately</b>, including from a paired phone in your pocket.</li>
+      <li>Schedules and timers are <b>saved and run without an approval step</b>.</li>
+      <li>A slip of the finger or a wrong value can leave a lithium pack charging when you didn't mean it to, or not charging when you need it.</li>
+    </ul>
+    <p class="small"><b>Still asked:</b> ⛔ danger changes (typed board name) and restoring a backup. <b>Still enforced:</b> every hard limit, backup, read-back and the change log, which marks writes made without confirmation.</p>
+    <p class="small">Only this computer can turn this on. Any paired device can turn it back on (confirmations on).</p>
+    <label class="field"><span>Type <b>skip confirmations</b> to continue</span><input id="skipPhrase" autocomplete="off" spellcheck="false"></label>
+    <label class="check"><input type="checkbox" id="skipCheck"> I understand and accept the risk.</label>
+    <div class="dlg-actions"><button value="cancel" class="ghost">Keep asking</button><button value="ok" id="skipOk" class="danger" disabled>Turn confirmations off</button></div>
+  </form>
+</dialog>
+
+<script type="module" src="/js/main.js"></script>
+</body>
+</html>

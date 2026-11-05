@@ -1,0 +1,91 @@
+VBMS Manager @VERSION@ for Windows (beta)
+========================================
+
+A local app for VESC VBMS32 battery management systems: watch every cell,
+set a charge limit, and schedule charging and balancing over WiFi.
+
+!! READ THIS !!
+This software was written by an AI (Claude, made by Anthropic). No human has
+reviewed it. It manages lithium batteries connected to chargers in your home.
+You use it entirely at your own risk, with no warranty. It may damage your BMS,
+battery, charger or board, or cause a lithium battery fire. Keep checking your
+boards with VESC Tool as usual. README.md has the full details.
+
+This Windows build is new and hasn't been tried on a real Windows PC yet.
+Please report anything that doesn't work.
+
+
+Installing
+----------
+1. Right-click the downloaded zip > Properties. If there's an "Unblock"
+   box at the bottom, tick it and click OK. (This stops Windows asking
+   about every file.)
+2. Right-click the zip > Extract All, and put the "VBMS Manager" folder
+   somewhere that stays put, e.g. your Documents folder.
+3. Open the folder and double-click "VBMS Manager" (VBMS Manager.cmd).
+
+   This beta isn't signed, so Windows may say "Windows protected your PC".
+   Click "More info", then "Run anyway". You only need to do this once.
+
+4. A black window opens (that's VBMS Manager running) and your browser
+   opens VBMS Manager. If the browser doesn't open, go to
+   http://127.0.0.1:8642 yourself.
+
+Nothing else needs installing: Python is included in the "runtime" folder.
+
+
+How it runs
+-----------
+- The black window is VBMS Manager. Leave it open (you can minimise it).
+  Closing it, or pressing Ctrl+C in it, stops VBMS Manager. The app itself
+  is the page in your browser at http://127.0.0.1:8642
+- Schedules, timers, recording and alerts only run while that window is
+  open and the PC is awake. If the PC sleeps, they pause until it wakes.
+- To start it when you log in: press Windows+R, type  shell:startup  and
+  press Enter. Right-click "VBMS Manager.cmd" > Show more options >
+  Create shortcut, and move the shortcut into that Startup folder. In the
+  shortcut's Properties, set "Run" to "Minimized".
+- To use it from your phone on the same network, start it once with --lan:
+  open a Command Prompt in the folder and run   "VBMS Manager.cmd" --lan
+  (remembered from then on; --local-only turns it off). The window shows
+  the address to open on your phone and a pairing code. Phones are
+  view-only until you pair them with that code. When Windows Firewall asks
+  about Python, allow it on Private networks.
+- Bluetooth isn't available on Windows (only the Mac app has it). Boards
+  must be on WiFi.
+- Battery drain: while VBMS Manager is connected to a board, its BMS never
+  goes to sleep and keeps powering itself from the pack. Over weeks this
+  drains your battery (in practice a few percent per day). Left plugged in,
+  the charger also kicks on for about 30 seconds roughly twice a day to top
+  it back up. Before storing the board or leaving it for days, stop VBMS
+  Manager or use Board > Free for VESC Tool so the BMS can sleep.
+- Only one app can talk to a board at a time. While VBMS Manager is connected,
+  VESC Tool can't connect to that board over WiFi. Use Board > Free for VESC
+  Tool, or stop VBMS Manager.
+
+
+Your data
+---------
+Everything VBMS Manager saves (boards, history, config backups, logs) is in
+the folder .vbms_manager in your user folder (C:\Users\<you>\.vbms_manager).
+Nothing is sent anywhere except to your boards. Config backups contain your
+WiFi key, so keep that folder private.
+
+If you report a problem, include what the black window printed.
+
+
+Updating and uninstalling
+-------------------------
+To update, stop VBMS Manager and replace the "VBMS Manager" folder with the
+new one. Your data stays in .vbms_manager.
+
+To uninstall, stop it, delete the "VBMS Manager" folder (and any Startup
+shortcut), and delete C:\Users\<you>\.vbms_manager if you don't want your
+history and backups.
+
+
+Source code
+-----------
+VBMS Manager is free software (GPL-3.0, see LICENSE). The full source, with
+instructions for building every version of the app, is the
+VBMS-Manager-@VERSION@-source.zip published alongside this download.

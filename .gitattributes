@@ -1,0 +1,5 @@
+# Check every file out byte for byte, on Windows too: the add-on script is pinned by SHA-256
+# (addons.py), the test fixtures are compared exactly, and the shell scripts need LF.
+* -text
+# The Windows launcher needs CRLF.
+*.cmd text eol=crlf

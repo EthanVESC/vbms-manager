@@ -1,0 +1,10 @@
+# Only what the Dockerfile copies: the app code.
+*
+!*.py
+!vesc/
+!cells/
+!web/
+!lisp/
+**/__pycache__
+**/*.pyc
+**/.DS_Store

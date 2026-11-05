@@ -1,0 +1,152 @@
+# Tests every push and pull request on Linux, Windows and macOS, builds every download, and runs
+# the Windows build on Windows. Pushing a tag v<VERSION> (matching VERSION in vbms_manager.py) also
+# makes a draft GitHub release with all the downloads; you review it and click Publish.
+# Docker images are pushed to ghcr.io on tags only if the repository variable PUBLISH_DOCKER is "true".
+# See BUILDING.md.
+name: CI
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: ${{ !startsWith(github.ref, 'refs/tags/') }}
+
+jobs:
+  test:
+    name: Tests (${{ matrix.os }}, Python ${{ matrix.python }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: ubuntu-latest, python: "3.12" }
+          - { os: windows-latest, python: "3.12" }
+          - { os: macos-latest, python: "3.12" }
+          - { os: ubuntu-22.04, python: "3.8" }   # the oldest Python the README promises
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: ${{ matrix.python }}
+      - run: python -B -m unittest discover -s tests -t .
+
+  build-linux:
+    name: Build source, Windows, Linux and Docker
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Tag matches VERSION
+        if: startsWith(github.ref, 'refs/tags/')
+        run: |
+          v=$(sed -n 's/^VERSION = "\(.*\)"$/\1/p' vbms_manager.py)
+          [ "$GITHUB_REF_NAME" = "v$v" ] || { echo "::error::tag $GITHUB_REF_NAME doesn't match VERSION $v"; exit 1; }
+      - uses: docker/setup-qemu-action@99012661954931238ded8c8b007157a8430204e1 # v4.4.0
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+      - run: ./release.sh source windows linux docker
+        env:
+          RELEASE_DIR: ${{ runner.temp }}/release
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: release-linux
+          path: ${{ runner.temp }}/release/VBMS-Manager-*
+          if-no-files-found: error
+
+  build-macos:
+    name: Build macOS
+    needs: test
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - run: ./release.sh macos
+        env:
+          RELEASE_DIR: ${{ runner.temp }}/release
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: release-macos
+          path: ${{ runner.temp }}/release/VBMS-Manager-*
+          if-no-files-found: error
+
+  windows-check:
+    name: Run the Windows build on Windows
+    needs: build-linux
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: release-linux
+          path: release
+      - name: Unpack
+        shell: pwsh
+        run: |
+          $zip = Get-ChildItem release\VBMS-Manager-*-windows-x64.zip
+          Expand-Archive $zip.FullName -DestinationPath "$env:RUNNER_TEMP\win"
+      - name: Tests with the bundled Python
+        shell: pwsh
+        run: |
+          & "$env:RUNNER_TEMP\win\VBMS Manager\runtime\python.exe" -B -E -s -m unittest discover -s tests -t .
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+      - name: Start VBMS Manager.cmd and load the page
+        shell: pwsh
+        run: |
+          $env:VBMS_MANAGER_HOME = "$env:RUNNER_TEMP\vbms-home"
+          $p = Start-Process -FilePath "$env:RUNNER_TEMP\win\VBMS Manager\VBMS Manager.cmd" -ArgumentList '--no-browser' -PassThru
+          $ok = $false
+          for ($i = 0; $i -lt 30 -and -not $ok; $i++) {
+            Start-Sleep 1
+            try { $r = Invoke-WebRequest -UseBasicParsing http://127.0.0.1:8642/ -TimeoutSec 3; $ok = $r.StatusCode -eq 200 } catch {}
+          }
+          taskkill /F /T /PID $p.Id | Out-Null
+          if (-not $ok) { Write-Error "VBMS Manager never answered on http://127.0.0.1:8642/"; exit 1 }
+          "VBMS Manager answered"
+
+  release:
+    name: Draft GitHub release
+    if: startsWith(github.ref, 'refs/tags/')
+    needs: [build-linux, build-macos, windows-check]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: release-*
+          merge-multiple: true
+          path: release
+      - name: Checksums and draft release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          v=$(sed -n 's/^VERSION = "\(.*\)"$/\1/p' vbms_manager.py)
+          (cd release && sha256sum VBMS-Manager-* > SHA256SUMS && cat SHA256SUMS)
+          pre=; case "$v" in *-*) pre=--prerelease ;; esac
+          gh release create "$GITHUB_REF_NAME" release/* --draft $pre --title "VBMS Manager $v" --generate-notes
+
+  docker-publish:
+    name: Push Docker image to ghcr.io
+    if: startsWith(github.ref, 'refs/tags/') && vars.PUBLISH_DOCKER == 'true'
+    needs: [build-linux, windows-check]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: docker/setup-qemu-action@99012661954931238ded8c8b007157a8430204e1 # v4.4.0
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+      - uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ github.token }}
+      - run: PUSH="ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/vbms-manager" ./docker/build.sh

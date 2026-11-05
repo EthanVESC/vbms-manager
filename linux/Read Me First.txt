@@ -1,0 +1,95 @@
+VBMS Manager @VERSION@ for Linux (beta)
+======================================
+
+A local app for VESC VBMS32 battery management systems: watch every cell,
+set a charge limit, and schedule charging and balancing over WiFi.
+
+!! READ THIS !!
+This software was written by an AI (Claude, made by Anthropic). No human has
+reviewed it. It manages lithium batteries connected to chargers in your home.
+You use it entirely at your own risk, with no warranty. It may damage your BMS,
+battery, charger or board, or cause a lithium battery fire. Keep checking your
+boards with VESC Tool as usual. README.md has the full details.
+
+
+Which download
+--------------
+  linux-x86_64   most PCs and laptops
+  linux-arm64    Raspberry Pi 3/4/5 with 64-bit Raspberry Pi OS, other ARM64
+  linux-armv7    Raspberry Pi 2/3/4 with 32-bit Raspberry Pi OS
+Not sure? Run  uname -m : x86_64, aarch64 (= arm64) or armv7l (= armv7).
+Python is included; nothing else needs installing (glibc 2.17 or newer, so
+any current distribution; not Alpine).
+
+
+Trying it
+---------
+    tar -xzf VBMS-Manager-@VERSION@-linux-<arch>.tar.gz
+    cd vbms-manager-@VERSION@-linux-<arch>
+    ./vbms-manager
+
+Your browser opens http://127.0.0.1:8642 (open it yourself if it doesn't).
+Ctrl+C stops it. ./vbms-manager --help lists the options.
+
+
+Installing
+----------
+    ./install.sh
+
+copies it to ~/.local/share/vbms-manager, adds the `vbms-manager` command
+(in ~/.local/bin) and an entry in your app menu. No root needed.
+
+Always-on computer (Raspberry Pi, home server):
+
+    ./install.sh --service
+
+also runs it in the background now and at every boot as a systemd user
+service, so schedules, timers and recording keep going. On a computer
+without a screen, add --lan so you can open it from your phone or laptop:
+
+    ./install.sh --service --lan
+    journalctl --user -u vbms-manager    (shows the address and pairing code)
+
+and, so it runs while you're logged out:  sudo loginctl enable-linger $USER
+
+Other devices (your phone, laptop) are view-only until you pair them with
+the pairing code. A few settings (turning confirmations off, removing paired
+devices) can only be changed from the computer running VBMS Manager. On a
+computer without a screen, use an SSH tunnel from your laptop:
+    ssh -L 8642:127.0.0.1:8642 <you>@<the-pi>
+and open http://127.0.0.1:8642 on the laptop; that counts as local.
+
+./install.sh --uninstall removes it (your data is kept).
+
+
+How it runs
+-----------
+- Schedules, timers, recording and alerts only run while VBMS Manager is
+  running and the computer is awake.
+- Bluetooth isn't available on Linux (only the Mac app has it). Boards must
+  be on WiFi.
+- If a firewall is on (ufw, firewalld), allow TCP port 8642 for --lan.
+- Battery drain: while VBMS Manager is connected to a board, its BMS never
+  goes to sleep and keeps powering itself from the pack. Over weeks this
+  drains your battery (in practice a few percent per day). Left plugged in,
+  the charger also kicks on for about 30 seconds roughly twice a day to top
+  it back up. Before storing the board or leaving it for days, stop VBMS
+  Manager or use Board > Free for VESC Tool so the BMS can sleep.
+- Only one app can talk to a board at a time. While VBMS Manager is connected,
+  VESC Tool can't connect to that board over WiFi. Use Board > Free for VESC
+  Tool, or stop VBMS Manager.
+
+
+Your data
+---------
+Everything VBMS Manager saves (boards, history, config backups, logs) is in
+~/.vbms_manager (set VBMS_MANAGER_HOME to move it). Nothing is sent anywhere
+except to your boards. Config backups contain your WiFi key, so keep that
+folder private.
+
+
+Source code
+-----------
+VBMS Manager is free software (GPL-3.0, see LICENSE). The full source, with
+instructions for building every version of the app, is the
+VBMS-Manager-@VERSION@-source.zip published alongside this download.

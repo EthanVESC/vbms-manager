@@ -1,0 +1,130 @@
+{
+  "_note": "Curves map state of charge (%) to resting cell voltage at 25 °C and are used to turn a percentage into a Charge End voltage, and to estimate SOC for capacity checks. Each curve's source says where it comes from and how it was measured. 0% is 2.8 V under a light load; 100% is 4.20 V, though the charge limit's 100% is the profile's max_end. The BMS compares Charge End with the cell voltage while current is flowing, which reads higher than resting, so the pack settles a little below the chosen percentage. Safety limits (max end, gap, charge/balance minimums) are enforced separately and do not depend on these numbers. LiFePO4 packs (Onewheel V1/Plus, A123 26650) are not supported: their curve is too flat for a voltage limit to mean a percentage.",
+  "curves": {
+    "molicel_p42a": {
+      "name": "Molicel P42A resting-voltage curve",
+      "verified": true,
+      "source": "Independent lab test, lygte-info.dk (https://lygte-info.dk/review/batteries2012/Molicel INR21700-P42A 4200mAh (Gray) UK.html): 0.2 A constant-current discharge to 2.8 V, the top curve of its 'Discharge, capacity' chart, digitized. At 0.2 A (about C/20) the voltage is within ~10 mV of resting. SOC is taken from the measured 4.03 Ah to 2.8 V. 0% is the 2.8 V point of that discharge; 100% is 4.20 V, the rated charge voltage.",
+      "points": [[0, 2.800], [5, 3.123], [10, 3.298], [15, 3.409], [20, 3.447], [25, 3.505], [30, 3.557], [35, 3.603], [40, 3.639], [45, 3.676], [50, 3.722], [55, 3.763], [60, 3.811], [65, 3.865], [70, 3.903], [75, 3.952], [80, 4.011], [85, 4.053], [90, 4.063], [95, 4.079], [100, 4.200]]
+    },
+    "samsung_40t": {
+      "name": "Samsung 40T resting-voltage curve",
+      "verified": true,
+      "source": "Independent lab test, lygte-info.dk (https://lygte-info.dk/review/batteries2012/Samsung INR21700-40T 4000mAh (Cyan) UK.html): 0.2 A constant-current discharge to 2.8 V, the top curve of its 'Discharge, capacity' chart, digitized. At 0.2 A (about C/20) the voltage is within ~10 mV of resting. SOC is taken from the measured 3.91 Ah to 2.8 V. 0% is the 2.8 V point of that discharge; 100% is 4.20 V, the rated charge voltage.",
+      "points": [[0, 2.800], [5, 3.063], [10, 3.180], [15, 3.283], [20, 3.386], [25, 3.474], [30, 3.510], [35, 3.581], [40, 3.631], [45, 3.676], [50, 3.717], [55, 3.761], [60, 3.800], [65, 3.850], [70, 3.895], [75, 3.940], [80, 4.000], [85, 4.048], [90, 4.063], [95, 4.079], [100, 4.200]]
+    },
+    "murata_vtc6a": {
+      "name": "Murata VTC6A resting-voltage curve",
+      "verified": true,
+      "source": "Independent lab test, lygte-info.dk (https://lygte-info.dk/review/batteries2012/Sony US21700VTC6A 4000mAh (Green) UK.html): 0.2 A constant-current discharge to 2.8 V, the top curve of its 'Discharge, capacity' chart, digitized. At 0.2 A (about C/19) the voltage is within ~10 mV of resting. SOC is taken from the measured 3.78 Ah to 2.8 V. 0% is the 2.8 V point of that discharge; 100% is 4.20 V, the rated charge voltage.",
+      "points": [[0, 2.800], [5, 3.030], [10, 3.138], [15, 3.216], [20, 3.302], [25, 3.381], [30, 3.451], [35, 3.515], [40, 3.577], [45, 3.639], [50, 3.719], [55, 3.770], [60, 3.810], [65, 3.841], [70, 3.877], [75, 3.934], [80, 3.995], [85, 4.042], [90, 4.072], [95, 4.099], [100, 4.200]]
+    },
+    "sony_vtc6": {
+      "name": "Sony/Murata VTC6 resting-voltage curve",
+      "verified": true,
+      "source": "Independent lab test, lygte-info.dk (https://lygte-info.dk/review/batteries2012/Sony US18650VTC6 3000mAh (Green) UK.html): 0.2 A constant-current discharge to 2.8 V, the top curve of its 'Discharge, capacity' chart, digitized. At 0.2 A (about C/15) the voltage is within ~10 mV of resting. SOC is taken from the measured 3.01 Ah to 2.8 V. Murata's own VTC6 datasheet only shows 3 A and heavier discharges, too far from resting to use. 0% is the 2.8 V point of that discharge; 100% is 4.20 V, the rated charge voltage.",
+      "points": [[0, 2.800], [5, 3.067], [10, 3.192], [15, 3.306], [20, 3.400], [25, 3.479], [30, 3.515], [35, 3.588], [40, 3.641], [45, 3.686], [50, 3.732], [55, 3.779], [60, 3.815], [65, 3.851], [70, 3.908], [75, 3.965], [80, 4.022], [85, 4.058], [90, 4.073], [95, 4.095], [100, 4.200]]
+    },
+    "samsung_30q": {
+      "name": "Samsung 30Q resting-voltage curve",
+      "verified": true,
+      "source": "Independent lab test, lygte-info.dk (https://lygte-info.dk/review/batteries2012/Samsung INR18650-30Q 3000mAh (Pink) UK.html): 0.2 A constant-current discharge to 2.8 V, the top curve of its 'Discharge, capacity' chart, digitized. At 0.2 A (about C/15) the voltage is within ~10 mV of resting. SOC is taken from the measured 2.90 Ah to 2.8 V. 0% is the 2.8 V point of that discharge; 100% is 4.20 V, the rated charge voltage.",
+      "points": [[0, 2.800], [5, 3.051], [10, 3.175], [15, 3.283], [20, 3.387], [25, 3.479], [30, 3.515], [35, 3.583], [40, 3.639], [45, 3.686], [50, 3.732], [55, 3.774], [60, 3.815], [65, 3.851], [70, 3.899], [75, 3.955], [80, 4.011], [85, 4.048], [90, 4.063], [95, 4.079], [100, 4.200]]
+    },
+    "lg_hg2": {
+      "name": "LG HG2 resting-voltage curve",
+      "verified": true,
+      "source": "Independent lab test, lygte-info.dk (https://lygte-info.dk/review/batteries2012/LG 18650 HG2 3000mAh (Brown) UK.html): 0.2 A constant-current discharge to 2.8 V, the top curve of its 'Discharge, capacity' chart, digitized. At 0.2 A (about C/15) the voltage is within ~10 mV of resting. SOC is taken from the measured 2.86 Ah to 2.8 V. 0% is the 2.8 V point of that discharge; 100% is 4.20 V, the rated charge voltage.",
+      "points": [[0, 2.800], [5, 3.079], [10, 3.242], [15, 3.361], [20, 3.443], [25, 3.479], [30, 3.546], [35, 3.588], [40, 3.619], [45, 3.650], [50, 3.691], [55, 3.738], [60, 3.784], [65, 3.840], [70, 3.887], [75, 3.934], [80, 3.986], [85, 4.037], [90, 4.063], [95, 4.084], [100, 4.200]]
+    },
+    "molicel_p28a": {
+      "name": "Molicel P28A resting-voltage curve",
+      "verified": true,
+      "source": "Independent lab test, lygte-info.dk (https://lygte-info.dk/review/batteries2012/Molicel INR18650-P28A 2800mAh (Gray) UK.html): 0.2 A constant-current discharge to 2.8 V, the top curve of its 'Discharge, capacity' chart, digitized. At 0.2 A (about C/14) the voltage is within ~10 mV of resting. SOC is taken from the measured 2.69 Ah to 2.8 V. 0% is the 2.8 V point of that discharge; 100% is 4.20 V, the rated charge voltage.",
+      "points": [[0, 2.800], [5, 3.101], [10, 3.277], [15, 3.397], [20, 3.438], [25, 3.495], [30, 3.546], [35, 3.593], [40, 3.628], [45, 3.665], [50, 3.708], [55, 3.753], [60, 3.800], [65, 3.851], [70, 3.893], [75, 3.939], [80, 3.999], [85, 4.042], [90, 4.058], [95, 4.073], [100, 4.200]]
+    },
+    "samsung_25r": {
+      "name": "Samsung 25R resting-voltage curve",
+      "verified": true,
+      "source": "Independent lab test, lygte-info.dk (https://lygte-info.dk/review/batteries2012/Samsung INR18650-25R 2500mAh (Green) UK.html): 0.2 A constant-current discharge to 2.8 V, the top curve of its 'Discharge, capacity' chart, digitized. At 0.2 A (about C/12) the voltage is within ~10 mV of resting. SOC is taken from the measured 2.49 Ah to 2.8 V. 0% is the 2.8 V point of that discharge; 100% is 4.20 V, the rated charge voltage.",
+      "points": [[0, 2.800], [5, 3.149], [10, 3.346], [15, 3.437], [20, 3.474], [25, 3.531], [30, 3.572], [35, 3.598], [40, 3.619], [45, 3.650], [50, 3.681], [55, 3.722], [60, 3.774], [65, 3.831], [70, 3.877], [75, 3.916], [80, 3.970], [85, 4.027], [90, 4.063], [95, 4.084], [100, 4.200]]
+    },
+    "molicel_p45b": {
+      "name": "Molicel P45B resting-voltage curve",
+      "verified": true,
+      "source": "Manufacturer datasheet (Molicel INR-21700-P45B product data sheet, standard discharge chart as reproduced by batterydesign.net, https://www.batterydesign.net/genuine-p45b-tests/): 0.2C discharge after a CC-CV charge to 4.2 V, 23 °C, digitized. SOC is taken from the 4.40 Ah the chart shows to 2.8 V. At 0.2C the voltage reads about 10-15 mV below resting. 0% is the 2.8 V point of that discharge; 100% is 4.20 V, the rated charge voltage.",
+      "points": [[0, 2.800], [5, 3.049], [10, 3.193], [15, 3.313], [20, 3.411], [25, 3.465], [30, 3.510], [35, 3.565], [40, 3.610], [45, 3.655], [50, 3.702], [55, 3.748], [60, 3.793], [65, 3.834], [70, 3.875], [75, 3.928], [80, 3.985], [85, 4.039], [90, 4.063], [95, 4.090], [100, 4.200]]
+    },
+    "molicel_p50b": {
+      "name": "Molicel P50B resting-voltage curve",
+      "verified": true,
+      "source": "Manufacturer datasheet (Molicel INR-21700-P50B data sheet v1.1, https://www.fsaeonline.com/content/Molicel-TDS--INR-21700-P50B-80122.pdf): 0.2C discharge after a CC-CV charge to 4.2 V, 23 °C, digitized. SOC is taken from the 4.68 Ah the chart shows to 2.8 V. At 0.2C the voltage reads about 10-15 mV below resting. 0% is the 2.8 V point of that discharge; 100% is 4.20 V, the rated charge voltage.",
+      "points": [[0, 2.800], [5, 2.956], [10, 3.093], [15, 3.203], [20, 3.298], [25, 3.381], [30, 3.450], [35, 3.514], [40, 3.569], [45, 3.631], [50, 3.687], [55, 3.739], [60, 3.783], [65, 3.823], [70, 3.864], [75, 3.914], [80, 3.971], [85, 4.023], [90, 4.051], [95, 4.076], [100, 4.200]]
+    },
+    "molicel_p30b": {
+      "name": "Molicel P30B resting-voltage curve",
+      "verified": true,
+      "source": "Manufacturer datasheet (Molicel INR-18650-P30B data sheet v1.0, https://fsaeonline.com/content/INR-18650-P30B-80111.pdf): 0.2C discharge after a CC-CV charge to 4.2 V, 23 °C, digitized. SOC is taken from the 2.85 Ah the chart shows to 2.8 V. At 0.2C the voltage reads about 10-15 mV below resting. 0% is the 2.8 V point of that discharge; 100% is 4.20 V, the rated charge voltage.",
+      "points": [[0, 2.800], [5, 3.023], [10, 3.150], [15, 3.242], [20, 3.334], [25, 3.421], [30, 3.494], [35, 3.538], [40, 3.595], [45, 3.644], [50, 3.697], [55, 3.749], [60, 3.793], [65, 3.836], [70, 3.874], [75, 3.927], [80, 3.984], [85, 4.037], [90, 4.065], [95, 4.094], [100, 4.200]]
+    },
+    "molicel_m35a": {
+      "name": "Molicel M35A resting-voltage curve",
+      "verified": true,
+      "source": "Manufacturer datasheet (Molicel INR-18650-M35A product data sheet V2, https://www.molicel.com/wp-content/uploads/INR18650M35A-V2-80096.pdf): 0.68 A (0.2C) discharge after a CC-CV charge at 1.7 A to 4.2 V, 23 °C, digitized. SOC is taken from the 3.38 Ah the chart shows to 2.8 V. At 0.2C the voltage reads about 10-15 mV below resting. The chart is coarse (0-5 V axis), so allow about ±10 mV. 0% is the 2.8 V point of that discharge; 100% is 4.20 V, the rated charge voltage.",
+      "points": [[0, 2.800], [5, 3.014], [10, 3.135], [15, 3.243], [20, 3.332], [25, 3.408], [30, 3.469], [35, 3.519], [40, 3.570], [45, 3.625], [50, 3.681], [55, 3.724], [60, 3.770], [65, 3.808], [70, 3.846], [75, 3.897], [80, 3.960], [85, 3.998], [90, 4.021], [95, 4.040], [100, 4.200]]
+    },
+    "murata_vtc5d": {
+      "name": "Murata VTC5D resting-voltage curve",
+      "verified": true,
+      "source": "Manufacturer datasheet (Murata US18650VTC5D product datasheet, https://www.murata.com/-/media/webrenewal/products/batteries/cylindrical/datasheet/us18650vtc5d-product-datasheet.ashx): 0.2 ItA (540 mA) discharge, 23 °C, digitized. SOC is taken from the 2.74 Ah the chart shows to 2.8 V. At 0.2C the voltage reads about 10-15 mV below resting. 0% is the 2.8 V point of that discharge; 100% is 4.20 V, the rated charge voltage.",
+      "points": [[0, 2.800], [5, 3.047], [10, 3.197], [15, 3.325], [20, 3.415], [25, 3.465], [30, 3.512], [35, 3.571], [40, 3.607], [45, 3.641], [50, 3.680], [55, 3.722], [60, 3.764], [65, 3.804], [70, 3.847], [75, 3.899], [80, 3.942], [85, 4.004], [90, 4.053], [95, 4.089], [100, 4.200]]
+    },
+    "samsung_50s": {
+      "name": "Samsung 50S resting-voltage curve",
+      "verified": true,
+      "source": "Manufacturer datasheet (Samsung SDI 'Introduction of INR21700-50S' (2022), Standard Discharge Curve, https://cdn03.plentymarkets.com/i9a0e0hd8l6w/frontend/Datenblaeter/Samsung/INR21700-50S/INR21700-50S_Introduction_of_INR21700-50S_2022_v1_20220301_.pdf): 0.2C discharge to 2.5 V after a CC-CV 0.5C charge to 4.2 V (250 mA cut-off), digitized. SOC is taken from the 4.91 Ah the chart shows to 2.8 V. At 0.2C the voltage reads about 10-15 mV below resting. 0% is the 2.8 V point of that discharge; 100% is 4.20 V, the rated charge voltage.",
+      "points": [[0, 2.800], [5, 3.038], [10, 3.159], [15, 3.266], [20, 3.371], [25, 3.454], [30, 3.507], [35, 3.564], [40, 3.611], [45, 3.656], [50, 3.704], [55, 3.750], [60, 3.795], [65, 3.835], [70, 3.874], [75, 3.930], [80, 3.994], [85, 4.036], [90, 4.050], [95, 4.070], [100, 4.200]]
+    },
+    "reliance_rs50": {
+      "name": "Reliance RS50 resting-voltage curve",
+      "verified": true,
+      "source": "Reliance's own RS50 specification (A1-1) has rate tables but no discharge curve, so this is an independent lab test: About:Energy (https://www.aboutenergy.io/post/reliance-rs50-battery-performance-analysis), C/30 constant-current discharge at 25 °C (Figure 2.1), digitized. At C/30 the voltage is within a few mV of resting. SOC is taken from the 5.03 Ah to 2.8 V. 0% is the 2.8 V point of that discharge; 100% is 4.20 V, the rated charge voltage.",
+      "points": [[0, 2.800], [5, 2.956], [10, 3.083], [15, 3.176], [20, 3.260], [25, 3.341], [30, 3.420], [35, 3.486], [40, 3.549], [45, 3.613], [50, 3.689], [55, 3.762], [60, 3.823], [65, 3.862], [70, 3.898], [75, 3.970], [80, 4.034], [85, 4.068], [90, 4.078], [95, 4.099], [100, 4.200]]
+    },
+    "fm_gt_original": {
+      "name": "Onewheel GT original pack (Samsung 40T / Murata VTC6A average)",
+      "verified": true,
+      "source": "Average of the Samsung 40T and Murata VTC6A curves, both from lygte-info.dk 0.2 A tests (https://lygte-info.dk/review/batteries2012/Samsung INR21700-40T 4000mAh (Cyan) UK.html, https://lygte-info.dk/review/batteries2012/Sony US21700VTC6A 4000mAh (Green) UK.html). Original GT packs are reported with either cell; from 60% up the two curves are within 0.02 V. If you know your cell, pick it instead.",
+      "points": [[0, 2.800], [5, 3.046], [10, 3.159], [15, 3.250], [20, 3.344], [25, 3.428], [30, 3.481], [35, 3.548], [40, 3.604], [45, 3.657], [50, 3.718], [55, 3.766], [60, 3.805], [65, 3.846], [70, 3.886], [75, 3.937], [80, 3.998], [85, 4.045], [90, 4.067], [95, 4.089], [100, 4.200]]
+    },
+    "generic_nmc": {
+      "name": "Typical NMC/NCA Li-ion (median of the bundled cells)",
+      "verified": false,
+      "source": "Median, point by point, of the 15 measured cell curves bundled with VBMS Manager. Not data for any one cell: from 60% up, real cells differ from it by up to about 0.05 V (more at low charge). Pick your cell if it's listed, or enter its curve yourself.",
+      "points": [[0, 2.800], [5, 3.049], [10, 3.180], [15, 3.283], [20, 3.387], [25, 3.465], [30, 3.510], [35, 3.571], [40, 3.611], [45, 3.650], [50, 3.702], [55, 3.750], [60, 3.795], [65, 3.840], [70, 3.877], [75, 3.934], [80, 3.994], [85, 4.039], [90, 4.063], [95, 4.084], [100, 4.200]]
+    }
+  },
+  "cells": [
+    {"id": "fm_pint", "name": "Onewheel Pint stock pack (Murata VTC5D)", "group": "Stock Onewheel packs", "format": "18650", "capacity_mah": 2600, "datasheet_max_v": 4.2, "max_end": 4.21, "curve": "murata_vtc5d"},
+    {"id": "fm_pint_x_xr", "name": "Onewheel Pint X / XR stock pack (Sony/Murata VTC6)", "group": "Stock Onewheel packs", "format": "18650", "capacity_mah": 3000, "datasheet_max_v": 4.2, "max_end": 4.21, "curve": "sony_vtc6", "note": "Some XR packs have been opened with other cells (Samsung 30Q, LG HG2). Check the print on yours if you can."},
+    {"id": "fm_gt_stock", "name": "Onewheel GT original pack (Samsung 40T or Murata VTC6A)", "group": "Stock Onewheel packs", "format": "21700", "capacity_mah": 4000, "datasheet_max_v": 4.2, "max_end": 4.21, "curve": "fm_gt_original"},
+    {"id": "fm_gt_p42a", "name": "Onewheel GT later pack (Molicel P42A)", "group": "Stock Onewheel packs", "format": "21700", "capacity_mah": 4200, "datasheet_max_v": 4.2, "max_end": 4.21, "curve": "molicel_p42a"},
+    {"id": "fm_gts_p45b", "name": "Onewheel GT-S stock pack (Molicel P45B)", "group": "Stock Onewheel packs", "format": "21700", "capacity_mah": 4500, "datasheet_max_v": 4.2, "max_end": 4.21, "curve": "molicel_p45b"},
+    {"id": "reliance_rs50", "name": "Reliance RS50", "group": "Cells", "format": "21700", "capacity_mah": 5000, "datasheet_max_v": 4.2, "max_end": 4.21, "curve": "reliance_rs50"},
+    {"id": "molicel_p50b", "name": "Molicel P50B", "group": "Cells", "format": "21700", "capacity_mah": 5000, "datasheet_max_v": 4.2, "max_end": 4.21, "curve": "molicel_p50b"},
+    {"id": "samsung_50s", "name": "Samsung 50S", "group": "Cells", "format": "21700", "capacity_mah": 5000, "datasheet_max_v": 4.2, "max_end": 4.21, "curve": "samsung_50s"},
+    {"id": "molicel_p45b", "name": "Molicel P45B", "group": "Cells", "format": "21700", "capacity_mah": 4500, "datasheet_max_v": 4.2, "max_end": 4.21, "curve": "molicel_p45b"},
+    {"id": "molicel_p42a", "name": "Molicel P42A", "group": "Cells", "format": "21700", "capacity_mah": 4200, "datasheet_max_v": 4.2, "max_end": 4.21, "curve": "molicel_p42a"},
+    {"id": "samsung_40t", "name": "Samsung 40T", "group": "Cells", "format": "21700", "capacity_mah": 4000, "datasheet_max_v": 4.2, "max_end": 4.21, "curve": "samsung_40t"},
+    {"id": "murata_vtc6a", "name": "Murata VTC6A", "group": "Cells", "format": "21700", "capacity_mah": 4000, "datasheet_max_v": 4.2, "max_end": 4.21, "curve": "murata_vtc6a"},
+    {"id": "molicel_m35a", "name": "Molicel M35A", "group": "Cells", "format": "18650", "capacity_mah": 3500, "datasheet_max_v": 4.2, "max_end": 4.21, "curve": "molicel_m35a"},
+    {"id": "molicel_p30b", "name": "Molicel P30B", "group": "Cells", "format": "18650", "capacity_mah": 3000, "datasheet_max_v": 4.2, "max_end": 4.21, "curve": "molicel_p30b"},
+    {"id": "sony_vtc6", "name": "Sony/Murata VTC6", "group": "Cells", "format": "18650", "capacity_mah": 3000, "datasheet_max_v": 4.2, "max_end": 4.21, "curve": "sony_vtc6"},
+    {"id": "samsung_30q", "name": "Samsung 30Q", "group": "Cells", "format": "18650", "capacity_mah": 3000, "datasheet_max_v": 4.2, "max_end": 4.21, "curve": "samsung_30q"},
+    {"id": "lg_hg2", "name": "LG HG2", "group": "Cells", "format": "18650", "capacity_mah": 3000, "datasheet_max_v": 4.2, "max_end": 4.21, "curve": "lg_hg2"},
+    {"id": "molicel_p28a", "name": "Molicel P28A", "group": "Cells", "format": "18650", "capacity_mah": 2800, "datasheet_max_v": 4.2, "max_end": 4.21, "curve": "molicel_p28a"},
+    {"id": "murata_vtc5d", "name": "Murata VTC5D", "group": "Cells", "format": "18650", "capacity_mah": 2600, "datasheet_max_v": 4.2, "max_end": 4.21, "curve": "murata_vtc5d"},
+    {"id": "samsung_25r", "name": "Samsung 25R", "group": "Cells", "format": "18650", "capacity_mah": 2500, "datasheet_max_v": 4.2, "max_end": 4.21, "curve": "samsung_25r"},
+    {"id": "other_nmc", "name": "Other NMC/NCA Li-ion cell", "group": "Cells", "format": null, "capacity_mah": null, "datasheet_max_v": 4.2, "max_end": 4.21, "curve": "generic_nmc"}
+  ]
+}

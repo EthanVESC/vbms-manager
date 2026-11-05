@@ -1,0 +1,66 @@
+VBMS Manager @VERSION@ (beta)
+=============================
+
+A local app for VESC VBMS32 battery management systems: watch every cell,
+set a charge limit, and schedule charging and balancing over WiFi.
+
+!! READ THIS !!
+This software was written by an AI (Claude, made by Anthropic). No human has
+reviewed it. It manages lithium batteries connected to chargers in your home.
+You use it entirely at your own risk, with no warranty. It may damage your BMS,
+battery, charger or board, or cause a lithium battery fire. Keep checking your
+boards with VESC Tool as usual. README.md has the full details.
+
+
+Installing
+----------
+1. Drag "VBMS Manager" onto the Applications folder in this window.
+2. Open it from Applications.
+
+   This beta isn't notarized by Apple, so the first time macOS says it
+   "can't be opened" or "can't verify the developer". Click Done (not
+   Move to Trash), then:
+     System Settings > Privacy & Security > scroll down to
+     "VBMS Manager was blocked..." > Open Anyway > enter your password.
+   You only need to do this once.
+
+3. Your browser opens VBMS Manager. If it doesn't, click the battery icon in
+   the menu bar (top right of the screen) and choose Open VBMS Manager.
+
+
+How it runs
+-----------
+- VBMS Manager lives in the menu bar (battery icon). There's no Dock icon and
+  no window: the app is the page in your browser at http://127.0.0.1:8642
+- It starts by itself when you log in, so schedules and timers keep working.
+  Turn that off with the menu's "Open at Login".
+- Schedules, timers, recording and alerts only run while the app is running
+  and the Mac is awake. If your Mac sleeps, they pause until it wakes.
+- "Use from Phones on This Network" lets your phone open it too (view-only
+  until you pair it with the code shown under Devices).
+- Battery drain: while VBMS Manager is connected to a board, its BMS never
+  goes to sleep and keeps powering itself from the pack. Over weeks this
+  drains your battery (in practice a few percent per day). Left plugged in,
+  the charger also kicks on for about 30 seconds roughly twice a day to top
+  it back up. Before storing the board or leaving it for days, quit VBMS
+  Manager or use Board > Free for VESC Tool so the BMS can sleep.
+- Only one app can talk to a board at a time. While VBMS Manager is connected,
+  VESC Tool can't connect to that board over WiFi. Use Board > Free for VESC
+  Tool, or quit VBMS Manager from the menu.
+
+
+Your data
+---------
+Everything VBMS Manager saves (boards, history, config backups, logs) is in
+the hidden folder ~/.vbms_manager in your home folder. The menu's "Show Data
+Folder" opens it. Nothing is sent anywhere except to your boards.
+Config backups contain your WiFi key, so keep that folder private.
+
+The app's own log is in ~/Library/Logs/VBMS Manager/ ("Show Log" in the
+menu). Include it if you report a problem.
+
+
+Uninstalling
+------------
+Quit it from the menu, drag it from Applications to the Trash, and delete
+~/.vbms_manager if you don't want your history and backups.

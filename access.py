@@ -28,7 +28,8 @@ import time
 
 COOKIE = "vbms_pair"
 PAIR_TRIES = 5          # per client IP per minute
-PAIR_TRIES_ALL = 20     # across all clients per minute
+PAIR_ROTATE = 10        # wrong codes (from anyone) before the code is replaced with a new one
+MAX_TRACKED = 5000      # rate-limit table size; oldest addresses are dropped past this
 
 
 def _strip_port(host_header: str) -> str:
@@ -120,8 +121,11 @@ def client_ip(peer_ip, headers):
     return fwd, True
 
 
-def classify(peer_ip, host_header, cookie_token, sessions, names=None, headers=None, internet_ui=False):
-    """sessions: object with .valid(token) -> bool. headers: the request headers (proxy detection)."""
+def classify(peer_ip, host_header, cookie_token, sessions, names=None, headers=None, internet_ui=False,
+             lan_untrusted=False):
+    """sessions: object with .valid(token) -> bool. headers: the request headers (proxy detection).
+    lan_untrusted: treat every non-loopback client as "internet" (Preferences; for Docker port mapping or a
+    router that rewrites source addresses, where internet clients arrive with a private address)."""
     names = own_names() if names is None else names
     host = _strip_port(host_header)
     addr, proxied = client_ip(peer_ip, headers)
@@ -131,7 +135,7 @@ def classify(peer_ip, host_header, cookie_token, sessions, names=None, headers=N
         if host in ("localhost",) or (host_ip is not None and host_ip.is_loopback):
             return "local"
         return "reject"
-    if not is_lan(peer) and not internet_ui:
+    if (lan_untrusted or not is_lan(peer)) and not internet_ui:
         return "internet"
     if host_ip is None and host not in names:
         return "reject"
@@ -149,6 +153,17 @@ def parse_cookie(header):
     return out
 
 
+def _prune(table, now, window=60):
+    """Drop attempts older than the window, and the oldest addresses if the table grows too big."""
+    for k in list(table):
+        table[k] = [t for t in table[k] if now - t < window]
+        if not table[k]:
+            del table[k]
+    if len(table) > MAX_TRACKED:
+        for k in sorted(table, key=lambda k: table[k][-1])[:len(table) - MAX_TRACKED]:
+            del table[k]
+
+
 def _hash(token):
     return hashlib.sha256(token.encode("utf-8")).hexdigest()
 
@@ -158,12 +173,17 @@ class Pairing:
 
     def __init__(self, store):
         self.store = store
-        self.code = "%06d" % secrets.randbelow(10 ** 6)
+        self.code = self._new_code()
         self._tries = {}
+        self._wrong = 0
         self._lock = threading.Lock()
 
+    @staticmethod
+    def _new_code():
+        return "%06d" % secrets.randbelow(10 ** 6)
+
     def _devices(self):
-        return list(self.store.settings().get("paired_devices") or [])
+        return [dict(d) for d in self.store.settings().get("paired_devices") or []]
 
     def valid(self, token):
         h = _hash(token)
@@ -179,13 +199,9 @@ class Pairing:
     def _rate_ok(self, ip):
         now = time.time()
         with self._lock:
-            for k in list(self._tries):
-                self._tries[k] = [t for t in self._tries[k] if now - t < 60]
-                if not self._tries[k]:
-                    del self._tries[k]
+            _prune(self._tries, now)
             mine = self._tries.setdefault(ip, [])
-            total = sum(len(v) for v in self._tries.values())
-            if len(mine) >= PAIR_TRIES or total >= PAIR_TRIES_ALL:
+            if len(mine) >= PAIR_TRIES:
                 return False
             mine.append(now)
             return True
@@ -195,6 +211,10 @@ class Pairing:
         if not self._rate_ok(ip):
             raise ValueError("too many attempts; wait a minute and try again")
         if not secrets.compare_digest(str(code or "").strip(), self.code):
+            with self._lock:
+                self._wrong += 1
+                if self._wrong >= PAIR_ROTATE:   # guessing from many addresses: the old code is worthless now
+                    self.code, self._wrong = self._new_code(), 0
             raise ValueError("wrong pairing code")
         token = secrets.token_urlsafe(32)
         devs = self._devices()
@@ -211,8 +231,8 @@ class Pairing:
 # -- API keys -------------------------------------------------------------------
 
 SCOPES = ("read", "control", "settings")
-KEY_FAILS = 10          # failed key attempts per client IP per minute
-KEY_FAILS_ALL = 60      # across all clients per minute
+KEY_FAILS = 10          # failed key attempts per client IP per minute (no global cap: keys are 256-bit, and a
+                        # global cap would let one client lock everyone out)
 KEY_PREFIX = "vbms_"
 
 
@@ -227,7 +247,7 @@ class ApiKeys:
         self._lock = threading.Lock()
 
     def _keys(self):
-        return list(self.store.settings().get("api_keys") or [])
+        return [dict(k) for k in self.store.settings().get("api_keys") or []]   # copies: never edit the store's own
 
     @staticmethod
     def public(k):
@@ -261,12 +281,8 @@ class ApiKeys:
     def blocked(self, ip):
         now = time.time()
         with self._lock:
-            for k in list(self._fails):
-                self._fails[k] = [t for t in self._fails[k] if now - t < 60]
-                if not self._fails[k]:
-                    del self._fails[k]
-            total = sum(len(v) for v in self._fails.values())
-            return len(self._fails.get(ip, ())) >= KEY_FAILS or total >= KEY_FAILS_ALL
+            _prune(self._fails, now)
+            return len(self._fails.get(ip, ())) >= KEY_FAILS
 
     def check(self, token, ip):
         """The key's record (without its hash) if the token is valid, else None (and counts a failure)."""

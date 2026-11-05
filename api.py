@@ -43,6 +43,14 @@ DOCS = "/docs/api"                                   # the API reference, served
 DOCS_ON = ("api_off", "no_key", "bad_key", "not_found", "scope", "danger", "invalid")
 
 
+def _limit(q, default=200, top=2000):
+    try:
+        n = int(q.get("limit") or default)
+    except ValueError:
+        raise ApiFail(422, "invalid", "limit must be a whole number")
+    return max(1, min(n, top))
+
+
 def _truthy(v):
     return v is True or str(v).lower() in ("1", "true", "yes")
 
@@ -55,17 +63,26 @@ class Api:
     # -- entry point -----------------------------------------------------------
 
     def handle(self, method, path, query, body, headers, ip):
-        """Returns (http status, JSON object)."""
+        """Returns (http status, JSON object). body: a dict, or a function that reads it; it's called only after
+        the key checks out, so nothing is read from a client without a valid key."""
         try:
             key = self._auth(headers, ip)
+            if callable(body):
+                try:
+                    body = body()
+                except ValueError:
+                    raise ApiFail(400, "bad_json", "body must be a JSON object (at most 1 MB)")
             return 200, self._route(method, path.rstrip("/"), query, body, key, ip)
         except ApiFail as e:
             out = dict({"error": str(e), "code": e.code}, **e.extra)
             if e.code in DOCS_ON:
                 out["docs"] = DOCS
             return e.status, out
-        except Exception as e:  # keep the server alive; report the problem
-            return 500, {"error": "%s: %s" % (type(e).__name__, e), "code": "internal"}
+        except Exception as e:  # keep the server alive; log the details here, don't hand them to the client
+            store.append_log("events", {"event": "api_error", "path": path, "ip": ip,
+                                        "error": "%s: %s" % (type(e).__name__, e)})
+            return 500, {"error": "internal error (details are in the event log on the computer running "
+                                  "VBMS Manager)", "code": "internal"}
 
     def _auth(self, headers, ip):
         if not (self.app.store.settings().get("api") or {}).get("on"):
@@ -77,10 +94,12 @@ class Api:
             tok = auth[7:].strip()
         elif headers.get("X-API-Key"):
             tok = headers.get("X-API-Key").strip()
-        if self.app.keys.blocked(ip):
-            raise ApiFail(429, "rate_limited", "too many bad keys from this address; wait a minute")
         if not tok:
             raise ApiFail(401, "no_key", "send your API key as: Authorization: Bearer <key>")
+        # A blocked address is told so before its key is even looked at (no free guesses while blocked). A valid
+        # key from a different address is never affected by someone else's bad attempts.
+        if self.app.keys.blocked(ip):
+            raise ApiFail(429, "rate_limited", "too many bad keys from this address; wait a minute")
         key = self.app.keys.check(tok, ip)
         if key is None:
             raise ApiFail(401, "bad_key", "unknown or revoked API key")
@@ -151,9 +170,9 @@ class Api:
                 boards = list(app.boards.values())
             return {"notices": [dict(n, board=self.summary(b, brief=True)) for b in boards for n in b.notices]}
         if parts == ["log", "changes"]:
-            return {"changes": store.read_log("changes", min(int(q.get("limit") or 200), 2000))}
+            return {"changes": store.read_log("changes", _limit(q))}
         if parts == ["log", "events"]:
-            return {"events": store.read_log("events", min(int(q.get("limit") or 200), 2000))}
+            return {"events": store.read_log("events", _limit(q))}
         if len(parts) >= 2 and parts[0] == "boards":
             b = self._board(parts[1])
             sub = parts[2:]
@@ -322,9 +341,11 @@ class Api:
                 allow = _truthy(body["allowed"])
                 prop = safe_write.prepare_balance(b, allow, register=False, reason="%s balancing (%s)" % (
                     "allow" if allow else "disallow", why))
-                if not dry:
-                    app.scheduler.override(b, "balance", 1 if allow else 0)
-                return self._write(b, prop, key, ip, dry)
+                if dry:
+                    return self._write(b, prop, key, ip, dry)
+                # A refused or failed write takes the schedule override back (see Scheduler.overriding).
+                return app.scheduler.overriding(b, "balance", 1 if allow else 0,
+                                                lambda: self._write(b, prop, key, ip, dry))[1]
             if sub == ["config"]:
                 self._need(key, "settings")
                 changes = body.get("changes")

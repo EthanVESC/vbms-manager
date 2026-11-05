@@ -4,7 +4,7 @@
 // 1 s render); the pointer layer (crosshair, readout, drag-to-zoom) lives outside the
 // slots so redraws don't disturb it.
 
-import { api, canWrite, esc, f1, f2, fail, hooks, S, store } from "./core.js";
+import { api, canWrite, esc, f1, f2, fail, hooks, S, setInner, store } from "./core.js";
 import { cellBars, clock, dayBars, dayLabel, driftMap, dur, historyChart, pointsAt, spark, when } from "./charts.js";
 
 const RANGES = [["15m", 900], ["1h", 3600], ["6h", 21600], ["24h", 86400], ["7d", 604800], ["30d", 2592000], ["all", 0]];
@@ -206,7 +206,7 @@ function skeleton(root, key, html) {
 }
 function slot(root, name, html) {
   const el = root.querySelector(`[data-slot="${name}"]`);
-  if (el && el._html !== html) { el._html = html; el.innerHTML = html; }
+  if (el && el._html !== html) { el._html = html; setInner(el, html); }
   return el;
 }
 

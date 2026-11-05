@@ -1,6 +1,6 @@
 // Settings forms built from the server's `editable` description.
 
-import { canWrite, esc } from "./core.js";
+import { canWrite, esc, S } from "./core.js";
 import { writeFields } from "./writes.js";
 
 const T_DOUBLE = 1, T_INT = 2, T_STRING = 3, T_ENUM = 4, T_BOOL = 5;
@@ -72,7 +72,11 @@ function riskInfo(f) {
 
 /** Render one group's form into `box`. Rebuilds only when the board's values change. */
 export function renderForm(box, b, group, { intro = "", only = null } = {}) {
-  if (!group) { box.innerHTML = `<div class="muted">Loading settings…</div>`; return; }
+  if (!group) {
+    const err = S.detailError.get(b.host);
+    box.innerHTML = err ? `<div class="bad-t">Couldn't load the settings (${esc(err)}). Retrying…</div>` : `<div class="muted">Loading settings…</div>`;
+    return;
+  }
   const fields = only ? group.fields.filter((f) => only.includes(f.name)) : group.fields;
   const key = JSON.stringify([b.host, canWrite(), fields.map((f) => [f.name, f.value, f.is_set])]);
   if (box.dataset.key === key) return;

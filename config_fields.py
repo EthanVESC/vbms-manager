@@ -31,6 +31,10 @@ OFF_NET = ("If this is wrong the board can't rejoin your WiFi, so it disappears 
            "over WiFi. You'd have to fix it over USB or Bluetooth.")
 
 
+HUB = ("Changes which TCP hub the board connects to. Whoever runs that hub can reach the BMS with full VESC Tool "
+       "access, outside VBMS Manager's checks, backups and log.")
+
+
 def R(op, v, level, text):
     return {"op": op, "v": v, "level": level, "text": text}
 
@@ -113,12 +117,13 @@ FIELDS = {
     "wifi_ap_ssid": dict(group="comms"),
     "wifi_ap_key": dict(group="comms"),
     "use_tcp_hub": dict(group="comms",
-                        risks=[R("eq", 1, "caution", "Connects the board to the internet TCP hub below. Anyone with "
-                                                     "the hub ID and password can connect to it.")]),
-    "tcp_hub_url": dict(group="comms"),
-    "tcp_hub_port": dict(group="comms", min=1, max=65535),
-    "tcp_hub_id": dict(group="comms"),
-    "tcp_hub_pass": dict(group="comms"),
+                        risks=[R("eq", 1, "danger", "Connects the board to the internet TCP hub below. Anyone with "
+                                                    "the hub ID and password gets full VESC Tool access to the BMS, "
+                                                    "outside VBMS Manager's checks, backups and log.")]),
+    "tcp_hub_url": dict(group="comms", risks=[R("changed", None, "danger", HUB)]),
+    "tcp_hub_port": dict(group="comms", min=1, max=65535, risks=[R("changed", None, "danger", HUB)]),
+    "tcp_hub_id": dict(group="comms", risks=[R("changed", None, "danger", HUB)]),
+    "tcp_hub_pass": dict(group="comms", risks=[R("changed", None, "danger", HUB)]),
     "ble_mode": dict(group="comms",
                      risks=[R("eq", 0, "danger", "Turns Bluetooth off. If WiFi stops working you'd need USB to "
                                                  "reach the BMS." + REBOOT)]),

@@ -46,6 +46,8 @@ export const vPct = (v) => clamp((v - V_LO) / (V_HI - V_LO), 0, 1) * 100;
 export const S = {
   state: null,        // /api/state
   detail: new Map(),  // host -> /api/board
+  detailError: new Map(),  // host -> why the last /api/board failed (cleared when it works again)
+  base: null,         // the parts of /api/state that never change while the server runs (fetched once)
   route: { board: null, tab: "overview" },
 };
 
@@ -57,11 +59,40 @@ export const ask = (q) => skipConfirm() || window.confirm(q);
 export const dis = () => (canWrite() ? "" : " disabled");
 export const boardName = (b) => b.nickname || (b.fw ? b.fw.hw_name : b.ble_only ? "Bluetooth board" : b.host);
 
+// Replace an element's markup without losing what the user was doing in it: keyboard focus goes back to the
+// matching control (same data-* identity), open <details> stay open, and sideways scroll positions stay put.
+// Live numbers change every second, so without this a keyboard user's focus was thrown away each second.
+const FOCUS_ATTRS = ["id", "data-act", "data-host", "data-pick", "data-tab", "data-bulk", "data-item", "data-sched", "data-i", "data-lock", "data-drag", "data-goto", "data-hv", "name"];
+function focusSel(el) {
+  const parts = FOCUS_ATTRS.filter((a) => el.hasAttribute(a)).map((a) => `[${a}="${CSS.escape(el.getAttribute(a))}"]`);
+  return parts.length ? el.tagName.toLowerCase() + parts.join("") : null;
+}
+export function setInner(el, html) {
+  const act = document.activeElement;
+  const sel = act && act !== el && el.contains(act) ? focusSel(act) : null;
+  const open = [...el.querySelectorAll("details[open] > summary")].map((s) => s.textContent);
+  const scroll = [...el.querySelectorAll(".tl-wrap, .scroll-x")].map((x) => x.scrollLeft);
+  el.innerHTML = html;
+  if (open.length) for (const s of el.querySelectorAll("details > summary")) if (open.includes(s.textContent)) s.parentElement.open = true;
+  el.querySelectorAll(".tl-wrap, .scroll-x").forEach((x, i) => { if (scroll[i]) x.scrollLeft = scroll[i]; });
+  if (sel) { const n = el.querySelector(sel); if (n) n.focus({ preventScroll: true }); }
+}
+
 export async function api(path, body) {
   const opt = body === undefined ? {} : {
     method: "POST", headers: { "Content-Type": "application/json", "X-VBMS-Token": TOKEN }, body: JSON.stringify(body),
   };
-  const r = await fetch(path, opt);
+  // Reads give up after 15 s so a hung request can't stall the page. Writes have no limit: a flash write with
+  // read-back, or an add-on upload, can take a while, and abandoning one midway would only hide its result.
+  let ctl = null, timer = null;
+  if (body === undefined && typeof AbortController !== "undefined") {
+    ctl = new AbortController(); opt.signal = ctl.signal;
+    timer = setTimeout(() => ctl.abort(), 15000);
+  }
+  let r;
+  try { r = await fetch(path, opt); }
+  catch (e) { throw new Error(e && e.name === "AbortError" ? "no answer from VBMS Manager (timed out)" : (e.message || "network error")); }
+  finally { if (timer) clearTimeout(timer); }
   let data;
   try { data = await r.json(); } catch { data = { error: "bad response (" + r.status + ")" }; }
   if (!r.ok || data.error) throw new Error(data.error || "request failed");

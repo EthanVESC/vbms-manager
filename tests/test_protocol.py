@@ -16,9 +16,10 @@ FIX = os.path.join(os.path.dirname(os.path.abspath(__file__)), "fixtures")
 
 def load(name):
     d = os.path.join(FIX, name)
-    xml_z = open(os.path.join(d, "config.xml.z"), "rb").read()
-    blob = open(os.path.join(d, "config.bin"), "rb").read()
-    vals = open(os.path.join(d, "bms_values.bin"), "rb").read()
+    def rd(n):
+        with open(os.path.join(d, n), "rb") as f:
+            return f.read()
+    xml_z, blob, vals = rd("config.xml.z"), rd("config.bin"), rd("bms_values.bin")
     ref = ET.parse(os.path.join(d, "vesc_tool_export.xml")).getroot()
     return ConfigSchema.from_compressed(xml_z), blob, vals, ref
 

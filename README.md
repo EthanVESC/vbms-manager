@@ -220,14 +220,16 @@ Charge sessions are measured from every 1 s reading whatever the recording inter
 
 ## Where things are stored
 
-Everything is under `~/.vbms_manager/` (set `VBMS_MANAGER_HOME` to move it): `boards.json` (nicknames, cell types, accepted curves, acknowledged scripts, schedules, paired devices as hashed tokens), `history/<board>/` (recordings, one file per day, plus a cached analysis digest), `backups/`, `changes.log`, `events.log`, `charges.log`. Nothing is sent anywhere except to your boards.
+Everything is under `~/.vbms_manager/` (set `VBMS_MANAGER_HOME` to move it): `boards.json` (nicknames, cell types, accepted curves, acknowledged scripts, schedules, paired devices as hashed tokens), `history/<board>/` (recordings, one file per day, plus a cached analysis digest), `backups/` (readable only by your user account: they include the WiFi key), `changes.log`, `events.log`, `charges.log` (each rolls over to `.1` … `.5` at 5 MB). `boards.json.bak` is a known-good copy of `boards.json`, refreshed at start and hourly; if `boards.json` is ever unreadable, it's kept as `boards.json.corrupt-<time>`, the copy is used instead, and the page says so. Nothing is sent anywhere except to your boards.
 
 ## Network notes
 
 - By default the UI is served on `127.0.0.1` only. To use it from your phone, start it once with `python3 vbms_manager.py --lan` (remembered; `--local-only` turns it off). It prints the addresses to open and a **pairing code**.
-- Other devices start **view-only**. Entering the pairing code (**Devices**, or the *Pair* button) lets that device make changes; it stays paired until you remove it under **Devices** on the computer running the tool. The code changes on every start, and wrong guesses are rate-limited.
+- Other devices start **view-only**. Entering the pairing code (**Devices**, or the *Pair* button) lets that device make changes; it stays paired until you remove it under **Devices** on the computer running the tool. The code changes on every start and after 10 wrong guesses, wrong guesses are rate-limited, and pairing only works from your own networks.
 - Exports (which can contain WiFi keys) need a paired device.
-- Clients from outside your networks (through a forwarded port) get only the key-authenticated API, never the web page or pairing, unless you allow it in Preferences → Internet. Requests that came through a proxy are judged by the address the proxy reports, and are never treated as this computer.
+- Clients from outside your networks (through a forwarded port) get only the key-authenticated API, never the web page or pairing. Preferences → Internet can let them watch the web page, view-only; they can never pair. Requests that came through a proxy are judged by the address the proxy reports, and are never treated as this computer.
+- **Docker port mapping and some routers hide where a client really is.** With `ports:` instead of host networking, or a router that rewrites the source address of forwarded connections, internet clients arrive with an address from your own network and would be treated like a device on your WiFi. If your server is set up like that, turn on **Preferences → Internet → Treat every other device as the internet**: then only the computer running VBMS Manager is local, everything else gets the API (with a key), and no device can be paired.
+- The web server limits how much one client can tie up (64 requests at once, 16 from one address, 30 s to send a request, 1 MB per request body).
 - The server only answers to IP addresses, `localhost` and this computer's own name, which blocks DNS-rebinding attacks. Every request that changes something also needs a per-run token embedded in the page, so other websites can't drive it.
 - If your phone can't connect, allow incoming connections for Python in your firewall (macOS asks the first time; otherwise System Settings → Network → Firewall → Options).
 - **Finding boards.** Every 2 minutes (and when you click **Search again**), the tool scans each local network this computer is on, up to a /24 each, for VESC's TCP port 65102. It doesn't scan VPN tunnels. Anything that answers is asked for its firmware version (a read-only command), then disconnected. Boards you've already added aren't touched, and found boards are only listed: nothing is added until you click **Add**. It also listens for the boards' UDP broadcasts on port 65109, but those often don't arrive (VESC Tool holds that port while it's open).
@@ -241,7 +243,7 @@ Scripts, home automation and CI jobs can read and control boards over HTTP at `/
 curl -s -H "Authorization: Bearer $KEY" -X POST http://192.168.1.10:8642/api/v1/all/charge-limit -d '{"pct": 80}'
 ```
 
-**Port forwarding.** Clients from outside your networks only get the API (with a key), not the web page or pairing. Requests are plain HTTP, so a key crosses the internet unencrypted. Someone on the caller's network (public WiFi, for example) could copy it, so give each key only the scopes it needs, and revoke any key you think leaked. For more protection, reach the server over a VPN (WireGuard, Tailscale) instead of forwarding the port.
+**Port forwarding.** Clients from outside your networks only get the API (with a key), not the web page or pairing. Changing the board's TCP hub (which would give whoever runs the hub full VESC Tool access) is a ⛔ danger setting, so it needs a key with the danger tick. Requests are plain HTTP, so a key crosses the internet unencrypted. Someone on the caller's network (public WiFi, for example) could copy it, so give each key only the scopes it needs, and revoke any key you think leaked. For more protection, reach the server over a VPN (WireGuard, Tailscale) instead of forwarding the port.
 
 ## Running on an always-on computer
 
@@ -265,7 +267,7 @@ docker logs vbms-manager
 ```
 
 - Data lives in the `vbms-data` volume (`/data` in the container), so updating the image keeps it.
-- **Host networking** (Linux) lets it search your network for boards. On Docker Desktop (Mac/Windows), or if you'd rather not, use `-p 8642:8642` instead and add boards by IP. With port mapping, even the computer running Docker counts as another device, so pair it too.
+- **Host networking** (Linux) lets it search your network for boards. On Docker Desktop (Mac/Windows), or if you'd rather not, use `-p 8642:8642` instead and add boards by IP. With port mapping, even the computer running Docker counts as another device, so pair it too, and if the port is also forwarded to the internet turn on *Treat every other device as the internet* (see [Network notes](#network-notes)): port mapping makes internet clients look like local ones.
 - Options go after the image name, e.g. `… vbms-manager:<version> --port 9000`.
 - `docker stop` disconnects the boards cleanly. No Bluetooth in Docker.
 

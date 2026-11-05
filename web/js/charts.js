@@ -140,7 +140,7 @@ export function dayBars(days, { width = 640, height = 170 } = {}) {
       ${hIn > 0.5 ? `<rect x="${x0.toFixed(1)}" y="${(z - hIn).toFixed(1)}" width="${w.toFixed(1)}" height="${hIn.toFixed(1)}" rx="${Math.min(3, w / 3).toFixed(1)}" class="db-in"/>` : ""}
       ${hOut > 0.5 ? `<rect x="${x0.toFixed(1)}" y="${(z + 1).toFixed(1)}" width="${w.toFixed(1)}" height="${Math.max(0, hOut - 1).toFixed(1)}" rx="${Math.min(3, w / 3).toFixed(1)}" class="db-out"/>` : ""}${lab}</g>`;
   }).join("");
-  return `<svg class="hchart" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" role="img" aria-label="Energy per day">${grid}${bars}</svg>
+  return `<svg class="hchart" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" role="group" aria-label="Energy per day">${grid}${bars}</svg>
     <div class="legend"><span><i class="sw dbsw-in"></i>Wh into the pack (charging)</span><span><i class="sw dbsw-out"></i>Wh out of the pack</span><span class="muted">tap a day to see its graphs</span></div>`;
 }
 

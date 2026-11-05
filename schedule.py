@@ -63,6 +63,7 @@ TICK_S = 2.0
 SAFETY_S = 30.0          # how often safety notices are re-evaluated per board
 PAUSE_RESEND_S = 30.0
 WRITE_RETRY_S = 300.0
+CRASH_BACKOFF_S = 30.0
 LOOKBACK_DAYS = 8
 TIMER_MAX_S = 7 * 86400
 _TIME = re.compile(r"^([01]\d|2[0-3]):([0-5]\d)$")
@@ -438,6 +439,8 @@ class Scheduler:
         self.app = app
         self.clock = clock or dt.datetime.now
         self.state = {}  # mac -> transient: {"last_pause", "conn", "error", "retry", "last"}
+        self._locks = {}  # mac -> RLock around every read-modify-write of that board's schedule_run
+        self._locks_lock = threading.Lock()
         self._stop = threading.Event()
         self._thread = threading.Thread(target=self._run, name="scheduler", daemon=True)
 
@@ -447,14 +450,30 @@ class Scheduler:
     def stop(self):
         self._stop.set()
 
+    def lock(self, mac):
+        """The board's schedule lock. Held for a whole tick (writes included) and by every manual override, so a
+        tick can't save a stale copy of schedule_run over an override made while it was writing."""
+        with self._locks_lock:
+            return self._locks.setdefault(mac, threading.RLock())
+
+    def forget(self, b):
+        """Drop the transient state, so the next tick re-decides everything."""
+        with self.lock(b.mac):
+            self.state.pop(b.mac, None)
+
     def _run(self):
         while not self._stop.is_set():
             for b in list(self.app.boards.values()):
+                st = self._st(b.mac)
+                if time.time() < st.get("crash_until", 0.0):
+                    continue
                 try:
-                    self.housekeeping(b)
-                    self.tick(b)
-                except Exception as e:  # never let one board stop the scheduler
-                    self._st(b.mac)["error"] = "%s: %s" % (type(e).__name__, e)
+                    with self.lock(b.mac):
+                        self.housekeeping(b)
+                        self.tick(b)
+                except Exception as e:  # never let one board stop the scheduler; back off instead of every 2 s
+                    st["error"] = "%s: %s" % (type(e).__name__, e)
+                    st["crash_until"] = time.time() + CRASH_BACKOFF_S
             self._stop.wait(TICK_S)
 
     def housekeeping(self, b, now=None):
@@ -535,14 +554,34 @@ class Scheduler:
         True if the schedule or a timer was deciding that channel."""
         if not b.mac:
             return False
-        d = desired(b.profile().get("schedule"), self.timers(b), ch, self.clock())
-        if d is None:
-            return False
-        run = self.run_state(b)
-        run[ch]["override"] = d["key"]
-        run[ch]["value"] = value
-        self._save(b, run)
-        return True
+        with self.lock(b.mac):
+            d = desired(b.profile().get("schedule"), self.timers(b), ch, self.clock())
+            if d is None:
+                return False
+            run = self.run_state(b)
+            run[ch]["override"] = d["key"]
+            run[ch]["value"] = value
+            self._save(b, run)
+            return True
+
+    def overriding(self, b, ch, value, fn):
+        """Mark `ch` as changed by hand, then run fn() (the write). If fn raises, the override is taken back, so a
+        refused or failed write doesn't leave the schedule standing aside for a change that never happened.
+        The lock is held throughout, so the scheduler can't write the schedule's value in the middle.
+        Returns (overrode the schedule?, fn's result)."""
+        if not b.mac:
+            return False, fn()
+        with self.lock(b.mac):
+            before = (b.profile().get("schedule_run") or {}).get(ch)
+            hit = self.override(b, ch, value)
+            try:
+                return hit, fn()
+            except BaseException:
+                if hit:
+                    run = self.run_state(b)
+                    run[ch] = dict(EMPTY_CH, **(before or {}))
+                    self._save(b, run)
+                raise
 
     # -- the loop body
 

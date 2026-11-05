@@ -79,6 +79,9 @@ select { max-width: 100%; }
 .pill .psoc { color: var(--muted); font-variant-numeric: tabular-nums; font-weight: 500; }
 .pill .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--muted); }
 .dot.ok { background: var(--ok); } .dot.warn { background: var(--warn); } .dot.bad { background: var(--bad); } .dot.info { background: var(--accent); }
+/* Not colour alone: a problem is a square, a warning a diamond (the dot's text is there for screen readers). */
+.dot.bad { border-radius: 1px; } .dot.warn { border-radius: 1px; transform: rotate(45deg) scale(.9); }
+.sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
 .minibat { width: 26px; height: 13px; }
 .topright { display: flex; gap: 6px; flex-wrap: wrap; margin-left: auto; align-items: center; position: relative; }
 .topright button { gap: 0; }

@@ -57,6 +57,70 @@ _proposals = {}
 _plock = threading.Lock()
 
 
+def _register(prop):
+    """Make a proposal confirmable. A board has one pending change at a time (a newer one replaces it); other
+    boards' pending changes are left alone. Returns what the UI may see."""
+    now = time.time()
+    with _plock:
+        for k in [k for k, v in _proposals.items()
+                  if v.get("mac") == prop.get("mac") or now - v.get("created", now) > PROPOSAL_TTL]:
+            del _proposals[k]
+        _proposals[prop["id"]] = prop
+    return public(prop)
+
+
+def peek(pid):
+    """A pending proposal (not removed), or None."""
+    with _plock:
+        return _proposals.get(pid)
+
+
+def annotate(pid, **fields):
+    """Attach server-side extras (not shown to the UI) to a pending proposal."""
+    with _plock:
+        if pid in _proposals:
+            _proposals[pid].update(fields)
+
+
+def _fresh(board):
+    """(fw, schema, cfg) read fresh from the board, all over one connection, after checking it's still the same
+    board and the config layout round-trips."""
+    c = board.client   # once: a reconnect replaces board.client, and the lock must belong to the client we use
+    if c is None or not c.connected:
+        raise WriteRefused("board is not connected")
+    with c._lock:
+        fw = c.fw_version()
+        schema = c.get_config_schema()
+        cfg = schema.decode(c.get_config_blob())
+    if fw["mac"] != board.mac:
+        raise WriteRefused("the device at %s is not the board it was (MAC changed)" % board.host)
+    if not cfg.roundtrip_ok():
+        raise WriteRefused("config layout check failed on fresh read")
+    return fw, schema, cfg
+
+
+def _backup_path(folder, stamp, suffix):
+    """A backup file name nobody has used yet: two writes in the same second (a schedule boundary that changes the
+    limit and balancing together) must not overwrite the first one's "before"."""
+    base = store.path("backups", folder, stamp)
+    n = 0
+    while True:
+        p = "%s%s%s" % (base, "" if n == 0 else "-%d" % n, suffix)
+        if not os.path.exists(p) and not os.path.exists(p[:-len(suffix)] + "_before.bin"):
+            return p
+        n += 1
+
+
+def _write_private(path, data):
+    """Create (never overwrite) a file only this user can read: backups hold the WiFi key and hub password."""
+    mode = "xb" if isinstance(data, bytes) else "x"
+    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    with os.fdopen(fd, mode.replace("x", "w"), **({} if "b" in mode else {"encoding": "utf-8"})) as f:
+        f.write(data)
+        f.flush()
+        os.fsync(f.fileno())
+
+
 def _diff(a: bytes, b: bytes):
     return [i for i in range(len(a)) if a[i] != b[i]]
 
@@ -104,14 +168,7 @@ def prepare(board, start, end, reason="", register=True):
     if max_end is None:
         raise WriteRefused("choose a cell type for this board first")
 
-    with board.client._lock:
-        fw = board.client.fw_version()
-        schema = board.client.get_config_schema()
-        cfg = schema.decode(board.client.get_config_blob())
-    if fw["mac"] != board.mac:
-        raise WriteRefused("the device at %s is not the board it was (MAC changed)" % board.host)
-    if not cfg.roundtrip_ok():
-        raise WriteRefused("config layout check failed on fresh read")
+    fw, schema, cfg = _fresh(board)
 
     try:
         charge_limit.check(start, end, max_end, cfg.values)
@@ -161,10 +218,7 @@ def prepare(board, start, end, reason="", register=True):
         prop["rows"][0]["risks"].append({"level": "caution", "text": note})
     if not register:
         return prop
-    with _plock:
-        _proposals.clear()  # only one pending proposal at a time
-        _proposals[pid] = prop
-    return public(prop)
+    return _register(prop)
 
 
 def apply_scheduled(board, start, end, reason):
@@ -202,14 +256,7 @@ def prepare_storage(board, start, end, bal_min, bal_amps, reason="", register=Tr
     if not resolved:
         raise WriteRefused("choose a cell type for this board first")
     prof = board.profile()
-    with board.client._lock:
-        fw = board.client.fw_version()
-        schema = board.client.get_config_schema()
-        cfg = schema.decode(board.client.get_config_blob())
-    if fw["mac"] != board.mac:
-        raise WriteRefused("the device at %s is not the board it was (MAC changed)" % board.host)
-    if not cfg.roundtrip_ok():
-        raise WriteRefused("config layout check failed on fresh read")
+    fw, schema, cfg = _fresh(board)
     start, end = round(float(start), 3), round(float(end), 3)
     try:
         charge_limit.check(start, end, resolved[2], cfg.values)
@@ -270,16 +317,7 @@ def prepare_storage(board, start, end, bal_min, bal_amps, reason="", register=Tr
     }
     if not register:
         return prop
-    with _plock:
-        _proposals.clear()
-        _proposals[pid] = prop
-    return public(prop)
-
-
-def take(pid):
-    """Remove and return a pending proposal (for flows that commit it themselves, like storage mode)."""
-    with _plock:
-        return _proposals.pop(pid, None)
+    return _register(prop)
 
 
 def prepare_fields(board, changes, reason="", register=True):
@@ -291,14 +329,7 @@ def prepare_fields(board, changes, reason="", register=True):
         raise WriteRefused("bad change list")
     prof = board.profile()
 
-    with board.client._lock:
-        fw = board.client.fw_version()
-        schema = board.client.get_config_schema()
-        cfg = schema.decode(board.client.get_config_blob())
-    if fw["mac"] != board.mac:
-        raise WriteRefused("the device at %s is not the board it was (MAC changed)" % board.host)
-    if not cfg.roundtrip_ok():
-        raise WriteRefused("config layout check failed on fresh read")
+    fw, schema, cfg = _fresh(board)
 
     try:
         stored, rows = config_fields.validate(schema, cfg.values, changes)
@@ -343,10 +374,7 @@ def prepare_fields(board, changes, reason="", register=True):
     }
     if not register:
         return prop
-    with _plock:
-        _proposals.clear()
-        _proposals[pid] = prop
-    return public(prop)
+    return _register(prop)
 
 
 def read_balance_current(board):
@@ -367,13 +395,17 @@ def prepare_balance(board, allow, register=True, reason=""):
     if allow:
         amps = float(board.profile().get("balance_normal_a") or (cur if cur > 0 else 1.0))
     else:
-        if cur > 0:
-            board.boards.update(board.mac, balance_normal_a=cur)
         amps = 0.0
     if abs(cur - amps) < 0.0005:
+        if not allow and cur > 0:
+            board.boards.update(board.mac, balance_normal_a=cur)
         return None  # already there
     why = reason or ("allow balancing" if allow else "disallow balancing")
-    return prepare_fields(board, {"balance_max_current": amps}, why, register=register)
+    prop = prepare_fields(board, {"balance_max_current": amps}, why, register=False)
+    if not allow and cur > 0:
+        # Remembered only once the write goes through, so a dry run or a cancelled confirmation changes nothing.
+        prop["profile_after"] = {"balance_normal_a": cur}
+    return _register(prop) if register else prop
 
 
 def apply_balance(board, allow, reason):
@@ -382,7 +414,7 @@ def apply_balance(board, allow, reason):
     return _commit(board, prop) if prop else None
 
 
-_BACKUP_RE = re.compile(r"^[A-Za-z0-9_.-]+/\d{8}-\d{6}_before\.bin$")
+_BACKUP_RE = re.compile(r"^[A-Za-z0-9_.-]+/\d{8}-\d{6}(-\d{3})?(-\d+)?_before\.bin$")
 
 
 def _backup_dirs(mac):
@@ -443,14 +475,7 @@ def prepare_restore(board, backup_id):
         raise WriteRefused("backup file not found")
 
     prof = board.profile()
-    with board.client._lock:
-        fw = board.client.fw_version()
-        schema = board.client.get_config_schema()
-        cfg = schema.decode(board.client.get_config_blob())
-    if fw["mac"] != board.mac:
-        raise WriteRefused("the device at %s is not the board it was (MAC changed)" % board.host)
-    if not cfg.roundtrip_ok():
-        raise WriteRefused("config layout check failed on fresh read")
+    fw, schema, cfg = _fresh(board)
     if len(blob) != len(cfg.blob):
         raise WriteRefused("the backup has a different config layout (firmware or script changed since), "
                            "so it can't be restored here")
@@ -508,10 +533,7 @@ def prepare_restore(board, backup_id):
         "bytes_changed": len(_diff(cfg.blob, blob)), "backup_id": backup_id,
         "blob_before": cfg.blob, "blob_after": blob, "created": time.time(),
     }
-    with _plock:
-        _proposals.clear()
-        _proposals[pid] = prop
-    return public(prop)
+    return _register(prop)
 
 
 def _loggable(name, val):
@@ -574,24 +596,42 @@ def _commit(board, prop):
             raise WriteRefused("the config on the board changed since this was prepared; nothing was written")
         cfg = schema.decode(current)
 
-        stamp = time.strftime("%Y%m%d-%H%M%S")
+        stamp = time.strftime("%Y%m%d-%H%M%S") + "-%03d" % (int(time.time() * 1000) % 1000)
         folder = store.safe_name("%s_%s" % (prop["name"], board.mac.replace(":", "")))
-        bpath = store.path("backups", folder, "%s_before.xml" % stamp)
-        with open(bpath, "w", encoding="utf-8") as f:
-            f.write(cfg.to_vesc_tool_xml(include_secrets=True))
-        with open(bpath[:-4] + ".bin", "wb") as f:
-            f.write(current)
+        bpath = _backup_path(folder, stamp, "_before.xml")
+        _write_private(bpath, cfg.to_vesc_tool_xml(include_secrets=True))
+        _write_private(bpath[:-4] + ".bin", current)
         log["backup"] = bpath
 
         try:
             c.write_custom_config(prop["blob_after"])
         except Exception as e:
-            log.update(result="error", error="write: %s" % e)
-            store.append_log("changes", log)
-            raise WriteRefused("write failed: %s. Backup saved at %s" % (e, bpath))
+            # No acknowledgement doesn't mean nothing was stored: ask the board what it has now.
+            try:
+                now_blob = c.get_config_blob()
+            except Exception:
+                now_blob = None
+            if now_blob == prop["blob_after"]:
+                log["write_note"] = "no acknowledgement (%s), but the read-back matches" % e
+                readback = now_blob
+            else:
+                state = ("unchanged" if now_blob == current else
+                         "unknown (couldn't read it back)" if now_blob is None else "changed to something else")
+                log.update(result="error", error="write: %s" % e, board_config=state)
+                if now_blob is not None and now_blob != current:
+                    log["readback"] = now_blob.hex()
+                store.append_log("changes", log)
+                if now_blob == current:
+                    raise WriteRefused("write failed: %s. The board still has its previous settings. Backup saved "
+                                       "at %s" % (e, bpath))
+                raise WriteRefused("write failed: %s. The board's config is now %s: check it in VESC Tool, and "
+                                   "restore from the backup if needed: %s" % (e, state, bpath))
+        else:
+            readback = None
 
         try:
-            readback = c.get_config_blob()
+            if readback is None:
+                readback = c.get_config_blob()
         except Exception as e:
             log.update(result="unverified", error="read-back: %s" % e)
             store.append_log("changes", log)
@@ -609,6 +649,8 @@ def _commit(board, prop):
 
     log["result"] = "ok"
     store.append_log("changes", log)
+    if prop.get("profile_after"):
+        board.boards.update(board.mac, **prop["profile_after"])
     board.config = schema.decode(readback)
     board._event("config", "%s: %s" % (prop["reason"], ", ".join("%s %s -> %s" % (r["label"], r["old"], r["new"])
                                                                   for r in prop.get("rows", []))))
@@ -651,9 +693,12 @@ def prepare_addon(board, addon_id):
         raise WriteRefused(str(e))
 
     prof = board.profile()
-    with board.client._lock:
-        fw = board.client.fw_version()
-        raw = board.client.read_lisp_code()
+    c = board.client
+    if c is None or not c.connected:
+        raise WriteRefused("board is not connected")
+    with c._lock:
+        fw = c.fw_version()
+        raw = c.read_lisp_code()
     if fw["mac"] != board.mac:
         raise WriteRefused("the device at %s is not the board it was (MAC changed)" % board.host)
     info = dict(script_check.analyze(raw), fingerprint=addons.fingerprint(raw))
@@ -684,10 +729,7 @@ def prepare_addon(board, addon_id):
         "undo": UNDO,
         "blob_before": raw, "blob_after": new, "created": time.time(),
     }
-    with _plock:
-        _proposals.clear()
-        _proposals[pid] = prop
-    return public(prop)
+    return _register(prop)
 
 
 def _put_back(c, stored, log):

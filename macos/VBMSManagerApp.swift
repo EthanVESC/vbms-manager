@@ -259,7 +259,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         let fm = FileManager.default
         try? fm.createDirectory(at: logDir, withIntermediateDirectories: true)
         if let size = (try? fm.attributesOfItem(atPath: logURL.path))?[.size] as? Int, size > 5_000_000 {
-            try? fm.removeItem(at: logURL)
+            // Keep the previous log as vbms_manager.log.1 (it may hold why the server stopped) instead of deleting it.
+            let old = logURL.appendingPathExtension("1")
+            try? fm.removeItem(at: old)
+            try? fm.moveItem(at: logURL, to: old)
         }
         if !fm.fileExists(atPath: logURL.path) { fm.createFile(atPath: logURL.path, contents: nil) }
         guard let h = try? FileHandle(forWritingTo: logURL) else { return nil }

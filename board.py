@@ -285,9 +285,26 @@ class Board:
         self.state = "online"
         self.connect_count += 1
         self.missed_polls = 0
+        before = self.runtime_state if self.mac == fw["mac"] else {}
         self.runtime_state = {}  # the BMS may have restarted; live commands reset with it
         self._event("connected", "%s %s (FW %s)" % (fw["hw_name"], self.mac, fw["version"]))
         self._state_logged = "online"
+        self._restore_manual_pause(before)
+
+    def _restore_manual_pause(self, before):
+        """A charging pause you set by hand is sent again after a reconnect. Without it, a BMS that restarted would
+        quietly start charging while the page still showed "paused" (and one that didn't would show "allowed" while
+        still paused). Schedule pauses are re-sent by the scheduler itself."""
+        rt = before.get("charge_allowed")
+        if not rt or rt["value"] != 0 or str(rt.get("why", "")).startswith("by schedule"):
+            return
+        try:
+            self.send_runtime("charge_allowed", 0, rt["why"], quiet=True)
+            self.runtime_state["charge_allowed"]["t"] = rt.get("t", time.time())
+            self._event("runtime", "charging pause sent again after reconnecting (%s); allow charging to undo it"
+                        % rt["why"])
+        except (VescError, OSError) as e:
+            self._event("runtime", "couldn't send the charging pause again after reconnecting: %s" % e)
 
     def label(self):
         return "Bluetooth" if self.ble_only else self.host

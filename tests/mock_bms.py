@@ -139,6 +139,7 @@ class MockBMS:
         self.silent = silent          # accept connections but never answer (simulates "busy")
         self.reject_writes = False    # simulate firmware refusing the blob
         self.corrupt_readback = False # simulate a write that didn't stick
+        self.ack_writes = True        # False: store a config write but never answer (a lost acknowledgement)
         self.drop_values = 0          # ignore this many value requests (a stalled WiFi link)
         self.late_values = 0.0        # answer the next value request this many seconds late
         self.sim = None               # Sim(): time-varying values instead of the fixture
@@ -225,7 +226,8 @@ class MockBMS:
                 ok = False
             if ok:
                 self.blob = new
-                yield bytes([95])
+                if self.ack_writes:
+                    yield bytes([95])
             else:
                 yield bytes([21]) + b"Warning: Could not set configuration"
         elif cmd == 96:

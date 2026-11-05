@@ -12,10 +12,12 @@ custom header, so other websites can't send it without a CORS preflight we
 never approve).
 """
 
+import gzip
 import json
 import mimetypes
 import os
 import secrets
+import socket
 import threading
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -101,8 +103,9 @@ class App:
 
     # -- API handlers ---------------------------------------------------------
 
-    def state(self, role="local"):
-        cells_pub = {"curves": self.cells["curves"], "cells": self.cells["cells"], "note": self.cells["_note"]}
+    def state(self, role="local", full=True):
+        """full=False leaves out what never changes while the server runs (the cell database and the charge-limit
+        ranges); the page asks for those once and then polls the slim version every second."""
         acc = {"role": role, "lan": self.lan, "can_write": role in ("local", "paired")}
         if role == "local":
             acc["pair_code"] = self.pairing.code
@@ -111,25 +114,29 @@ class App:
                            for ip in access.lan_ips()] if self.lan else []
             acc["api_keys"] = self.keys.list()
             acc["internet_seen"] = self.internet_seen
-        return {"boards": [self.snapshot(b) for b in self.boards.values()],
-                "discovered": self.discovery.list(),
-                "discovery": self.discovery.status(),
-                "discovery_error": self.discovery.error,
-                "ble": self._ble_state(),
-                "cells": cells_pub,
-                "limits": {"pct_min": charge_limit.PCT_MIN, "pct_max": charge_limit.PCT_MAX,
-                           "gap": charge_limit.GAP, "gap_min": charge_limit.GAP_MIN,
-                           "gap_max": charge_limit.GAP_MAX},
-                "settings": self._public_settings(),
-                "recording": {"bytes": self._disk_bytes(), "levels": datalog.LEVELS, "intervals": datalog.INTERVALS,
-                              "retentions": datalog.RETENTIONS},
-                "access": acc}
+        out = {"boards": [self.snapshot(b) for b in self.boards.values()],
+               "discovered": self.discovery.list(),
+               "discovery": self.discovery.status(),
+               "discovery_error": self.discovery.error,
+               "ble": self._ble_state(),
+               "settings": self._public_settings(),
+               "recording": {"bytes": self._disk_bytes(), "levels": datalog.LEVELS, "intervals": datalog.INTERVALS,
+                             "retentions": datalog.RETENTIONS},
+               "access": acc,
+               "store_warning": self.store.load_warning if role in ("local", "paired") else None}
+        if full:
+            out["cells"] = {"curves": self.cells["curves"], "cells": self.cells["cells"], "note": self.cells["_note"]}
+            out["limits"] = {"pct_min": charge_limit.PCT_MIN, "pct_max": charge_limit.PCT_MAX,
+                             "gap": charge_limit.GAP, "gap_min": charge_limit.GAP_MIN,
+                             "gap_max": charge_limit.GAP_MAX}
+        return out
 
     def _public_settings(self):
         st = {k: v for k, v in self.store.settings().items() if k not in ("paired_devices", "api_keys")}
         st["safety"] = safety.settings_from(st)
         st["api"] = st.get("api") or {"on": False}
         st["internet_ui"] = bool(st.get("internet_ui"))
+        st["lan_untrusted"] = bool(st.get("lan_untrusted"))
         st["logging"] = datalog.settings_from(st)
         st["alerts"] = board_mod.alert_settings(st)
         st["alerts_saved"] = "alerts" in self.store.settings()
@@ -355,9 +362,18 @@ class App:
 
     def commit(self, body):
         b = self._online_mac(body)
+        pending = safe_write.peek(body.get("id")) or {}
+        ovr = pending.get("sched_override")
+
+        def go():
+            return safe_write.commit(b, body.get("id"), body.get("confirm_text"),
+                                     skipped_confirm=body.get("skipped_confirm") is True and self._skip_on())
         try:
-            res = safe_write.commit(b, body.get("id"), body.get("confirm_text"),
-                                    skipped_confirm=body.get("skipped_confirm") is True and self._skip_on())
+            # The balancing toggle overrides the schedule only once its write goes through (and the override is
+            # set before the write, under the schedule lock, so the scheduler can't undo it mid-write).
+            if pending.get("storage"):
+                storage.remember_before_write(b, pending["storage"])
+            res = self.scheduler.overriding(b, ovr[0], ovr[1], go)[1] if ovr else go()
         except safe_write.WriteRefused as e:
             raise ApiError(str(e))
         if res.get("storage"):
@@ -400,8 +416,11 @@ class App:
             prop = safe_write.prepare_balance(b, allow)
         except safe_write.WriteRefused as e:
             raise ApiError(str(e))
-        self.scheduler.override(b, "balance", 1 if allow else 0)
-        return prop or {"noop": True}
+        if prop is None:
+            self.scheduler.override(b, "balance", 1 if allow else 0)   # already so on the board: nothing to write
+            return {"noop": True}
+        safe_write.annotate(prop["id"], sched_override=["balance", 1 if allow else 0])
+        return prop
 
     # -- preferences
 
@@ -432,6 +451,12 @@ class App:
             on = body["internet_ui"] is True
             self.store.update_settings(internet_ui=on)
             store.append_log("changes", {"event": "prefs", "internet_ui": on, "role": role})
+        if "lan_untrusted" in body:
+            if role != "local":
+                raise ApiError("this can only be changed from the computer running VBMS Manager")
+            on = body["lan_untrusted"] is True
+            self.store.update_settings(lan_untrusted=on)
+            store.append_log("changes", {"event": "prefs", "lan_untrusted": on, "role": role})
         if "safety" in body:
             try:
                 st = safety.clean(body["safety"] or {}, safety.settings_from(self.store.settings()))
@@ -548,7 +573,7 @@ class App:
         if run:
             self.store.update(b.mac, schedule_run={ch: dict(v, key="", override=None) for ch, v in run.items()
                                                    if isinstance(v, dict)})
-        self.scheduler.state.pop(b.mac, None)
+        self.scheduler.forget(b)
 
     def schedule_off(self, body):
         b = self._online_mac(body)
@@ -557,7 +582,7 @@ class App:
             self.store.update(b.mac, schedule=dict(sched, enabled=False))
             # The scheduler's next tick gives back what the board had before the current window
             # (now, or when the board reconnects).
-            self.scheduler.state.pop(b.mac, None)
+            self.scheduler.forget(b)
             b._event("schedule", "schedule turned off")
         return self.snapshot(b, detail=True)
 
@@ -749,8 +774,10 @@ def make_handler(app: App, port: int):
 
         def _role(self):
             cookie = access.parse_cookie(self.headers.get("Cookie")).get(access.COOKIE)
+            st = app.store.settings()
             role = access.classify(self.client_address[0], self.headers.get("Host", ""), cookie, app.pairing,
-                                   headers=self.headers, internet_ui=bool(app.store.settings().get("internet_ui")))
+                                   headers=self.headers, internet_ui=bool(st.get("internet_ui")),
+                                   lan_untrusted=bool(st.get("lan_untrusted")))
             if role == "internet" or not access.is_lan(access._ip(self._client_ip())):
                 app.internet_seen = time.strftime("%Y-%m-%d %H:%M:%S")
             return role
@@ -768,29 +795,61 @@ def make_handler(app: App, port: int):
             self.end_headers()
             self.wfile.write(data)
 
+        def _read_body(self):
+            """The request's JSON object body ({} if there is none). Raises ValueError for a bad length (negative,
+            over 1 MB, not a number), a body that isn't a JSON object, or one that doesn't arrive in time."""
+            n = int(self.headers.get("Content-Length") or 0)
+            if not 0 <= n <= MAX_BODY:
+                raise ValueError("bad Content-Length")
+            data = b""
+            while len(data) < n:
+                if time.monotonic() - self._started > REQUEST_DEADLINE:
+                    raise ValueError("request body too slow")
+                chunk = self.rfile.read(min(65536, n - len(data)))
+                if not chunk:
+                    raise ValueError("request body cut short")
+                data += chunk
+            self.server.request_read(self.connection)
+            body = json.loads(data or b"{}")
+            if not isinstance(body, dict):
+                raise ValueError("body must be a JSON object")
+            return body
+
+        def setup(self):
+            self._started = time.monotonic()
+            BaseHTTPRequestHandler.setup(self)
+
+        def parse_request(self):
+            ok = BaseHTTPRequestHandler.parse_request(self)
+            if ok and self.command != "POST":
+                self.server.request_read(self.connection)
+            return ok
+
+        def send_response(self, code, message=None):
+            self.server.request_read(self.connection)
+            BaseHTTPRequestHandler.send_response(self, code, message)
+
         def _api_v1(self, method):
             u = urlparse(self.path)
             ip = self._client_ip()
             q = {k: v[0] for k, v in parse_qs(u.query).items()}
-            body = {}
-            if method == "POST":
-                try:
-                    n = int(self.headers.get("Content-Length") or 0)
-                    if n > 1_000_000:
-                        raise ValueError
-                    body = json.loads(self.rfile.read(n) or b"{}") if n else {}
-                    if not isinstance(body, dict):
-                        raise ValueError
-                except ValueError:
-                    return self._json({"error": "body must be a JSON object", "code": "bad_json"}, 400)
+            # The body is read only after the key checks out (api.handle calls this), so a client without a key
+            # can't make the server read anything.
+            body = self._read_body if method == "POST" else {}
             code, obj = app.api.handle(method, u.path, q, body, self.headers, ip)
             return self._json(obj, code)
 
         def _json(self, obj, code=200, headers=()):
-            data = json.dumps(obj).encode("utf-8")
+            data = json.dumps(obj, separators=(",", ":")).encode("utf-8")
+            zipped = len(data) > 1400 and "gzip" in (self.headers.get("Accept-Encoding") or "")
+            if zipped:
+                data = gzip.compress(data, compresslevel=5)
             self.send_response(code)
             self.send_header("Content-Type", "application/json")
             self.send_header("Cache-Control", "no-store")
+            if zipped:
+                self.send_header("Content-Encoding", "gzip")
+                self.send_header("Vary", "Accept-Encoding")
             self.send_header("Content-Length", str(len(data)))
             for k, v in headers:
                 self.send_header(k, v)
@@ -811,14 +870,14 @@ def make_handler(app: App, port: int):
             q = {k: v[0] for k, v in parse_qs(u.query).items()}
             try:
                 if u.path == "/api/state":
-                    return self._json(app.state(role))
+                    return self._json(app.state(role, full=q.get("live") != "1"))
                 if u.path == "/api/board":
                     return self._json(app.snapshot(app.board(q.get("host")), detail=True))
                 if u.path == "/api/log":
                     name = q.get("name")
                     if name not in ("changes", "events"):
                         raise ApiError("unknown log")
-                    return self._json(store.read_log(name, int(q.get("limit") or 300)))
+                    return self._json(store.read_log(name, max(1, min(int(q.get("limit") or 300), 5000))))
                 gets = {"/api/history": app.history, "/api/charges": app.charges, "/api/analysis": app.analysis,
                         "/api/backups": app.backups}
                 if u.path in gets:
@@ -839,7 +898,7 @@ def make_handler(app: App, port: int):
                         self.wfile.write(chunk.encode("utf-8"))
                     return
                 if u.path == "/api/export":
-                    if q.get("token") != app.token or role not in ("local", "paired"):
+                    if not secrets.compare_digest(str(q.get("token") or ""), app.token) or role not in ("local", "paired"):
                         return self._json({"error": "pair this device to export configs"}, 403)
                     b = app.board(q.get("host"))
                     if b.config is None:
@@ -896,21 +955,19 @@ def make_handler(app: App, port: int):
             role = self._role()
             if role == "internet":
                 return self._internet_page()
-            if role == "reject" or self.headers.get("X-VBMS-Token") != app.token:
+            if role == "reject" or not secrets.compare_digest(str(self.headers.get("X-VBMS-Token") or ""), app.token):
                 return self._json({"error": "forbidden"}, 403)
             try:
-                n = int(self.headers.get("Content-Length") or 0)
-                if n > 1_000_000:
-                    raise ValueError
-                body = json.loads(self.rfile.read(n) or b"{}") if n else {}
-                if not isinstance(body, dict):
-                    raise ApiError("bad request")
-            except (ValueError, ApiError):
+                body = self._read_body()
+            except ValueError:
                 return self._json({"error": "bad JSON"}, 400)
             path = urlparse(self.path).path
             if path == "/api/pair":
                 if role != "viewer":
                     return self._json({"ok": True})
+                if (not access.is_lan(access._ip(self._client_ip()))
+                        or app.store.settings().get("lan_untrusted")):
+                    return self._json({"error": "devices can only be paired from your own network"}, 403)
                 try:
                     tok = app.pairing.pair(self.client_address[0], body.get("code"), body.get("label"))
                 except ValueError as e:
@@ -984,7 +1041,60 @@ def make_handler(app: App, port: int):
     return Handler
 
 
+MAX_BODY = 1_000_000          # bytes in a POST body
+MAX_CONNECTIONS = 64          # requests handled at once; more are dropped (a forwarded port invites floods)
+MAX_PER_IP = 16               # of those, from one address
+REQUEST_DEADLINE = 30         # seconds to send the whole request (headers and body); slow-loris guard
+
+
 class _Server(ThreadingHTTPServer):
+    def __init__(self, *a, **kw):
+        self._conn_lock = threading.Lock()
+        self._active = {}         # socket -> client address (each one holds a slot)
+        self._reading = {}        # socket -> monotonic start, while the request is still arriving
+        ThreadingHTTPServer.__init__(self, *a, **kw)
+        threading.Thread(target=self._reaper, name="http-reaper", daemon=True).start()
+
+    def process_request(self, request, client_address):
+        ip = client_address[0]
+        with self._conn_lock:
+            mine = sum(1 for a in self._active.values() if a == ip)
+            if len(self._active) >= MAX_CONNECTIONS or mine >= MAX_PER_IP:
+                ok = False
+            else:
+                ok = True
+                self._active[request] = ip
+                self._reading[request] = time.monotonic()
+        if not ok:
+            ThreadingHTTPServer.shutdown_request(self, request)
+            return
+        ThreadingHTTPServer.process_request(self, request, client_address)
+
+    def shutdown_request(self, request):
+        with self._conn_lock:
+            self._active.pop(request, None)
+            self._reading.pop(request, None)
+        ThreadingHTTPServer.shutdown_request(self, request)
+
+    def request_read(self, request):
+        """The handler has the whole request: the slow-client deadline no longer applies."""
+        with self._conn_lock:
+            self._reading.pop(request, None)
+
+    def _reaper(self):
+        while True:
+            time.sleep(2)
+            now = time.monotonic()
+            with self._conn_lock:
+                late = [r for r, t in self._reading.items() if now - t > REQUEST_DEADLINE]
+                for r in late:
+                    self._reading.pop(r, None)
+            for r in late:
+                try:
+                    r.shutdown(socket.SHUT_RDWR)
+                except OSError:
+                    pass
+
     def finish_request(self, request, client_address):
         request.settimeout(60)    # a forwarded port gets slow or idle clients; don't hold a thread forever
         self.RequestHandlerClass(request, client_address, self)

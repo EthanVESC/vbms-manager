@@ -65,18 +65,20 @@ def plan(board, on, reason=None, register=True):
     st = prof.get("storage") or {}
     if on:
         c = cfg(prof)
-        cur_amps = safe_write.read_balance_current(board)
+        cur_amps = safe_write.read_balance_current(board)   # also refreshes board.config
         if c["balance"]:
             amps = cur_amps if cur_amps > 0 else float(prof.get("balance_normal_a") or 1.0)
         else:
-            if cur_amps > 0:
-                board.boards.update(board.mac, balance_normal_a=cur_amps)
             amps = 0.0
         end = c["end_v"]
         start = round(end - c["gap"], 3)
         why = reason or "storage mode on: end %.3f / start %.3f V, Balance Min %.2f V" % (end, start, c["balance_min"])
+        target = {"vc_charge_start": start, "vc_charge_end": end, "vc_balance_min": c["balance_min"],
+                  "balance_max_current": amps}
         prop = safe_write.prepare_storage(board, start, end, c["balance_min"], amps, why, register=False)
-        info = {"on": True, "saved": st.get("saved") if st.get("on") else None}
+        info = {"on": True, "saved": st.get("saved") if st.get("on") else _pending_saved(board, st, target)}
+        if not c["balance"] and cur_amps > 0:
+            info["balance_normal_a"] = cur_amps   # remembered in finish(), once storage mode is really on
     else:
         if not st.get("on"):
             raise StorageError("storage mode is not on")
@@ -95,17 +97,40 @@ def plan(board, on, reason=None, register=True):
     if on and info["saved"] is None:
         before = board.config.schema.decode(prop["blob_before"]).values
         info["saved"] = {k: round(before[k], 4) for k in SAVED}
+    if on and not st.get("on"):
+        info["target"] = target
     prop["storage"] = info
     if register:
-        with safe_write._plock:
-            safe_write._proposals.clear()
-            safe_write._proposals[prop["id"]] = prop
+        safe_write._register(prop)
     return prop, info
+
+
+def _pending_saved(board, st, target):
+    """The settings from before an earlier storage-on write that failed half way (sent, but not confirmed): if the
+    board now holds exactly the storage values, that write did land, and these are the values to put back later.
+    Otherwise None (they'd be stale)."""
+    pend = st.get("pending") or {}
+    vals = board.config.values if board.config is not None else {}
+    if pend.get("saved") and pend.get("target") == target and all(
+            k in vals and abs(vals[k] - v) < 0.0006 for k, v in target.items()):
+        return pend["saved"]
+    return None
+
+
+def remember_before_write(board, info):
+    """Called just before a storage-on write: keep the settings from before somewhere that survives the write
+    failing after it reached the board (read-back mismatch, lost connection), so they aren't lost."""
+    if info.get("on") and info.get("target"):
+        st = dict(board.profile().get("storage") or {})
+        st["pending"] = {"saved": info["saved"], "target": info["target"]}
+        board.boards.update(board.mac, storage=st)
 
 
 def finish(board, info, app=None):
     """Record storage on/off after its write (or when no write was needed)."""
     if info["on"]:
+        if info.get("balance_normal_a"):
+            board.boards.update(board.mac, balance_normal_a=info["balance_normal_a"])
         board.boards.update(board.mac, storage={"on": True, "since": time.strftime("%Y-%m-%d %H:%M:%S"),
                                                 "saved": info["saved"]})
         board._event("storage", "storage mode on")
@@ -121,6 +146,8 @@ def finish(board, info, app=None):
 def apply(board, on, via=None, reason=None, app=None):
     """Turn storage on/off without the confirmation step (API, all-boards actions already approved)."""
     prop, info = plan(board, on, reason, register=False)
+    if prop:
+        remember_before_write(board, info)
     res = safe_write.apply(board, prop, via) if prop else {"ok": True, "kind": "storage", "noop": True}
     finish(board, info, app)
     return res

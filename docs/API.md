@@ -116,13 +116,15 @@ endpoints also carry `"docs": "/docs/api"`.
 
 | HTTP | code | Meaning |
 |---|---|---|
+| 400 | `bad_json` | The body isn't a JSON object, or is over 1 MB (only checked once the key is valid) |
 | 401 | `no_key`, `bad_key` | Missing, unknown or revoked key |
 | 403 | `api_off` | API requests are turned off in Preferences |
 | 403 | `scope`, `danger` | The key lacks the scope or the danger tick. `danger` also lists `fields` |
 | 404 | `no_board`, `not_found` | Unknown board or endpoint |
-| 409 | `offline`, `risk`, `refused`, `storage`, `link` | A safety check refused it (the message says why) or the board isn't reachable. Nothing was written unless the message says so |
+| 409 | `offline`, `risk`, `refused`, `storage`, `link`, `unread` | A safety check refused it (the message says why) or the board isn't reachable. Nothing was written unless the message says so |
 | 422 | `invalid` | Bad value (out of range, wrong type) |
-| 429 | `rate_limited` | Too many bad keys from this address |
+| 429 | `rate_limited` | Too many bad keys from this address. Other addresses, and valid keys from elsewhere, aren't affected |
+| 500 | `internal` | Something went wrong inside VBMS Manager. The details are in the event log on the computer running it, not in the reply |
 
 ## Examples
 

@@ -2,7 +2,7 @@
 // timeline (an agenda list on phones), the item list, the item editor and the approval dialog. The server (schedule.py) decides what
 // actually happens; the timeline just draws the items where they are.
 
-import { $, api, ask, boardName, canWrite, clamp, dis, endFor, esc, f1, f3, fail, hm12, hooks, placeTip, S, skipConfirm, toast, whenAt } from "./core.js";
+import { $, setInner, api, ask, boardName, canWrite, clamp, dis, endFor, esc, f1, f3, fail, hm12, hooks, placeTip, S, skipConfirm, toast, whenAt } from "./core.js";
 import { approve, currentPct, readTime, timeSelects, timerList } from "./writes.js";
 
 const DAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
@@ -175,7 +175,7 @@ export function renderSchedule(box, b) {
   const items = sched.items || [];
   const lines = statusLines(ss);
   const ell = skipConfirm() ? "" : "…";
-  box.innerHTML = `
+  setInner(box, `
     <section class="panel"><h3>Right now</h3>
       <div class="sched-head">${st}${ss && ss.next_t ? `<span class="small">Next change <b>${esc(whenAt(ss.next_t))}</b></span>` : ""}</div>
       <div class="small sched-now">${lines || `<span class="muted">The schedule isn't changing anything on this board right now.</span>`}</div>
@@ -205,7 +205,7 @@ export function renderSchedule(box, b) {
     ${dirty ? `<div class="formbar schedbar"><span>Unsaved schedule changes. Nothing changes on the board until you save.</span><button type="button" class="ghost small" data-sched="discard">Discard</button><button type="button" data-sched="save"${dis()}>Save schedule${ell}</button></div>` : ""}
     <details class="panel howto"><summary>How the schedule works</summary>
       <p class="small">Each lane (limit, charging, balancing) works on its own. When blocks overlap, the one that started last wins, and when it ends the one still running takes over. Single events and timers hold until the next change. At the end of a block the board goes back to what it had before, unless a limit block is set to keep its limit. A limit you set by hand holds until the next change. "No charging" uses the live Pause command. Balancing off writes Balance Max Current = 0 A.</p>
-      <p class="small"><b>Schedules only run while VBMS Manager is running on this computer.</b></p></details>`;
+      <p class="small"><b>Schedules only run while VBMS Manager is running on this computer.</b></p></details>`);
   box.onclick = (e) => onClick(e, b);
   box.onchange = (e) => onChange(e, b);
   box.onpointerdown = (e) => onPointerDown(e, b, box);

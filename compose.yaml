@@ -7,6 +7,8 @@ services:
     container_name: vbms-manager
     # Host networking (Linux) lets it search your network for boards. On Docker Desktop, or if you
     # prefer, delete this line and use the `ports` lines instead, then add boards by IP.
+    # With `ports`, every client (internet ones too) arrives from Docker's own private address. If this port
+    # is forwarded to the internet, turn on Preferences -> Internet -> "Treat every other device as the internet".
     network_mode: host
     # ports:
     #   - "8642:8642"

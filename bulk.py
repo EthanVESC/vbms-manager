@@ -97,10 +97,10 @@ def run_one(app, b, action, why, via=None):
         allow = action == "balancing_on"
         prop = safe_write.prepare_balance(b, allow, register=False,
                                           reason="%s balancing (%s)" % ("allow" if allow else "disallow", why))
-        app.scheduler.override(b, "balance", 1 if allow else 0)
         if prop is None:
+            app.scheduler.override(b, "balance", 1 if allow else 0)
             return "already %s" % ("allowed" if allow else "disallowed")
-        safe_write.apply(b, prop, via)
+        app.scheduler.overriding(b, "balance", 1 if allow else 0, lambda: safe_write.apply(b, prop, via))
         return "balancing %s" % ("allowed" if allow else "disallowed")
     on = action == "storage_on"
     if not on and not (b.state == "online" and b.config is not None):

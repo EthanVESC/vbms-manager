@@ -1,7 +1,7 @@
 // One renderer per tab. Each builds a skeleton once, then fills slots; a slot
 // is only touched when its markup changes, so hovering and typing aren't disturbed.
 
-import { AWAKE_FIX, AWAKE_WARN, alertCfg, allowState, avg, switching, balanceState, boardAlerts, boardName, canWrite, cellLevel, cellsCount, cellTemps, chargeState, clamp, clock12, dis, esc, f1, f2, f3, hms12, isOpen, maxTemp, median, stamp12, stateChip, TOKEN, V_HI, V_LO, vPct } from "./core.js";
+import { setInner, AWAKE_FIX, AWAKE_WARN, alertCfg, allowState, avg, switching, balanceState, boardAlerts, boardName, canWrite, cellLevel, cellsCount, cellTemps, chargeState, clamp, clock12, dis, esc, f1, f2, f3, hms12, isOpen, maxTemp, median, stamp12, stateChip, TOKEN, V_HI, V_LO, vPct } from "./core.js";
 import { applyBar, editable, isPending, lockBtn, pv } from "./drag.js";
 import { readOnlyList, renderForm } from "./forms.js";
 import { scheduleSummary, renderSchedule } from "./schedule.js";
@@ -18,7 +18,7 @@ function skeleton(root, key, html) {
 
 function slot(root, name, html) {
   const el = root.querySelector(`[data-slot="${name}"]`);
-  if (el && el._html !== html) { el._html = html; el.innerHTML = html; }
+  if (el && el._html !== html) { el._html = html; setInner(el, html); }
   return el;
 }
 
@@ -282,7 +282,7 @@ function cellChart(b) {
   const iMax = cells.indexOf(v.cell_max), iMin = cells.indexOf(v.cell_min), dmv = v.cell_delta_mv || 0;
   const grid = [4.2, 3.9, 3.6, 3.3, 3.0].map((g) => `<div class="cc-grid" style="bottom:${vPct(g)}%"><span>${g.toFixed(1)}</span></div>`).join("");
   const ed = editable(b) && !chargeBlockers(b).length, edBal = editable(b) && !(b.write_blockers || []).length;
-  const line = (val, cls, lab, f, can) => val == null ? "" : `<div class="cc-line ${cls}${can ? " drag" : ""}${isPending(b, f) ? " pending" : ""}" style="bottom:${vPct(val)}%"${can ? ` data-drag="${f}" tabindex="0" role="slider" aria-label="${lab}" aria-valuenow="${f3(val)}"` : ""}><span${can ? ` data-edit="${f}" data-tip="Click to type a value · drag the line to move it"` : ""}>${lab} ${f3(val)}</span></div>`;
+  const line = (val, cls, lab, f, can) => val == null ? "" : `<div class="cc-line ${cls}${can ? " drag" : ""}${isPending(b, f) ? " pending" : ""}" style="bottom:${vPct(val)}%"${can ? ` data-drag="${f}" tabindex="0" role="slider" aria-label="${lab}" aria-valuemin="${V_LO}" aria-valuemax="${V_HI}" aria-valuenow="${f3(val)}" aria-valuetext="${f3(val)} V"` : ""}><span${can ? ` data-edit="${f}" data-tip="Click to type a value · drag the line to move it"` : ""}>${lab} ${f3(val)}</span></div>`;
   const bars = cells.map((cv, i) => {
     const lvl = cellLevel(b, cv, med);
     const tip = `Cell ${i + 1}: ${cv.toFixed(3)} V · ${Math.round((cv - v.cell_min) * 1000)} mV above lowest${v.balancing[i] ? " · balancing" : ""}${lvl === "bad" ? " · out of range" : lvl === "warn" ? " · outlier" : ""}`;
@@ -344,7 +344,7 @@ function tempGauge(b, title, temps, marks) {
   const mk = (m) => { const v = val(m); return `<g class="g-handle tg-${m.kind}${isPending(b, m.f) ? " pending" : ""}"${can ? ` data-drag="${m.f}" tabindex="0" role="slider" aria-label="${esc(m.label)}" aria-valuenow="${v}"` : ""}>
     ${can ? `<rect x="${x(v) - 9}" y="4" width="18" height="50" class="g-hit"/>` : ""}<line x1="${x(v)}" x2="${x(v)}" y1="30" y2="52" class="tg-line"/><text x="${x(v)}" y="24" text-anchor="middle" class="g-lab tg-lab">${Math.round(v)}°</text></g>`; };
   return `<div class="gauge-head"><span>${title}</span><b class="${ok ? "ok-t" : "bad-t"}">${ok ? "allowed" : "blocked by temperature"}</b></div>
-    <svg class="gauge${can ? " editable" : ""}" viewBox="0 0 400 78" role="img" aria-label="${esc(title)}: ${f1(tmin)} to ${f1(tmax)} degrees"${can ? ` data-dragbox data-axis="x" data-vb="400" data-p0="${X0}" data-p1="${X1}" data-v0="${lo}" data-v1="${hi}"` : ""}>
+    <svg class="gauge${can ? " editable" : ""}" viewBox="0 0 400 78" role="${can ? "group" : "img"}" aria-label="${esc(title)}: ${f1(tmin)} to ${f1(tmax)} degrees"${can ? ` data-dragbox data-axis="x" data-vb="400" data-p0="${X0}" data-p1="${X1}" data-v0="${lo}" data-v1="${hi}"` : ""}>
       <rect x="${X0}" y="38" width="${X1 - X0}" height="10" rx="5" class="g-track"/>
       <rect x="${x(okLo)}" y="38" width="${Math.max(0, x(okHi) - x(okLo))}" height="10" class="cw-ok"/>
       <rect x="${x(tmin) - 2}" y="33" width="${Math.max(4, x(tmax) - x(tmin) + 4)}" height="20" rx="4" class="g-seg"/>${ticks}${marks.map(mk).join("")}</svg>
@@ -587,5 +587,5 @@ export function allView(root, boards) {
 export function pill(b, active) {
   const v = b.values;
   return `<button type="button" class="pill${active ? " on" : ""}" data-pick="${esc(b.host)}" title="${b.link === "ble" ? "Over Bluetooth" : esc(b.host)}">
-    ${miniBattery(v ? v.soc : null, b.state)}<span class="pname">${esc(boardName(b))}</span>${b.link === "ble" ? BT_ICON : ""}<span class="psoc">${v ? Math.round(v.soc * 100) + "%" : ""}</span><i class="dot ${stateChip(b)[1]}"></i></button>`;
+    ${miniBattery(v ? v.soc : null, b.state)}<span class="pname">${esc(boardName(b))}</span>${b.link === "ble" ? BT_ICON : ""}<span class="psoc">${v ? Math.round(v.soc * 100) + "%" : ""}</span><i class="dot ${stateChip(b)[1]}" aria-hidden="true"></i><span class="sr-only">, ${esc(stateChip(b)[0])}</span></button>`;
 }

@@ -17,7 +17,7 @@ export function rangeGauge(min, max, ch = {}, { edit = false, pending = false } 
   const ticks = [3.0, 3.3, 3.6, 3.9, 4.2].map((t) =>
     `<line x1="${x(t)}" x2="${x(t)}" y1="50" y2="56" class="g-tick"/><text x="${x(t)}" y="70" text-anchor="middle" class="g-lab">${t.toFixed(1)}</text>`).join("");
   const mark = (v, cls, lab, f) => v == null ? "" :
-    `<g class="g-mark${edit ? " g-handle" : ""}${pending ? " pending" : ""}"${edit ? ` data-drag="${f}" tabindex="0" role="slider" aria-label="${lab}" aria-valuenow="${f3(v)}"` : ""}>
+    `<g class="g-mark${edit ? " g-handle" : ""}${pending ? " pending" : ""}"${edit ? ` data-drag="${f}" tabindex="0" role="slider" aria-label="${lab}" aria-valuemin="${V_LO}" aria-valuemax="${V_HI}" aria-valuenow="${f3(v)}" aria-valuetext="${f3(v)} V"` : ""}>
       ${edit ? `<rect x="${x(v) - 9}" y="8" width="18" height="44" class="g-hit"/><line x1="${x(v)}" x2="${x(v)}" y1="28" y2="50" class="g-${cls}l"/>` : ""}
       <path d="M${x(v)},28 l-5,-8 h10 z" class="g-${cls}"><title>${lab} ${f3(v)} V${edit ? " · drag to change" : ""}</title></path></g>`;
   let seg = "", label = "No data";
@@ -26,7 +26,7 @@ export function rangeGauge(min, max, ch = {}, { edit = false, pending = false } 
     label = `${f3(min)} to ${f3(max)} V`;
     seg = `<rect x="${a - 1.5}" y="34" width="${b - a + 3}" height="14" rx="4" class="g-seg"><title>${label}</title></rect>`;
   }
-  return `<svg class="gauge${edit ? " editable" : ""}" viewBox="0 0 400 76" role="img" aria-label="Cell range ${label}"${edit ? ` data-dragbox data-axis="x" data-vb="400" data-p0="${X0}" data-p1="${X1}" data-v0="${V_LO}" data-v1="${V_HI}"` : ""}>
+  return `<svg class="gauge${edit ? " editable" : ""}" viewBox="0 0 400 76" role="${edit ? "group" : "img"}" aria-label="Cell range ${label}"${edit ? ` data-dragbox data-axis="x" data-vb="400" data-p0="${X0}" data-p1="${X1}" data-v0="${V_LO}" data-v1="${V_HI}"` : ""}>
     <rect x="${X0}" y="36" width="${X1 - X0}" height="10" rx="5" class="g-track"/>
     ${ticks}${seg}${mark(ch.vc_charge_start, "start", "Charge start", "vc_charge_start")}${mark(ch.vc_charge_end, "end", "Charge end", "vc_charge_end")}
   </svg>`;
@@ -40,8 +40,8 @@ export function spreadMeter(deltaMv, { balStart, balEnd, alert, edit = false, pe
   const d = deltaMv || 0;
   const cls = d > alert ? "bad" : balStart != null && d > balStart ? "warn" : "ok";
   const m = (mv, cls2, lab, up, f) => mv == null ? "" :
-    `<g class="${edit && f ? "g-handle" : ""}${pending ? " pending" : ""}"${edit && f ? ` data-drag="${f}" tabindex="0" role="slider" aria-label="${lab}"` : ""}>${edit && f ? `<rect x="${x(mv) - 9}" y="${up ? 8 : 26}" width="18" height="44" class="g-hit"/>` : ""}<line x1="${x(mv)}" x2="${x(mv)}" y1="26" y2="56" class="sm-${cls2}"/><text x="${x(mv)}" y="${up ? 20 : 70}" text-anchor="middle" class="g-lab sm-${cls2}t">${lab}</text></g>`;
-  return `<svg class="gauge${edit ? " editable" : ""}" viewBox="0 0 400 76" role="img" aria-label="Cell spread ${f1(d)} millivolts"${edit ? ` data-dragbox data-axis="x" data-vb="400" data-p0="${X0}" data-p1="${X1}" data-v0="0" data-v1="${top / 1000}"` : ""}>
+    `<g class="${edit && f ? "g-handle" : ""}${pending ? " pending" : ""}"${edit && f ? ` data-drag="${f}" tabindex="0" role="slider" aria-label="${lab}" aria-valuemin="0" aria-valuemax="${Math.round(top)}" aria-valuenow="${Math.round(mv)}" aria-valuetext="${Math.round(mv)} mV"` : ""}>${edit && f ? `<rect x="${x(mv) - 9}" y="${up ? 8 : 26}" width="18" height="44" class="g-hit"/>` : ""}<line x1="${x(mv)}" x2="${x(mv)}" y1="26" y2="56" class="sm-${cls2}"/><text x="${x(mv)}" y="${up ? 20 : 70}" text-anchor="middle" class="g-lab sm-${cls2}t">${lab}</text></g>`;
+  return `<svg class="gauge${edit ? " editable" : ""}" viewBox="0 0 400 76" role="${edit ? "group" : "img"}" aria-label="Cell spread ${f1(d)} millivolts"${edit ? ` data-dragbox data-axis="x" data-vb="400" data-p0="${X0}" data-p1="${X1}" data-v0="0" data-v1="${top / 1000}"` : ""}>
     <rect x="${X0}" y="34" width="${X1 - X0}" height="14" rx="7" class="g-track"/>
     <rect x="${X0}" y="34" width="${Math.max(4, x(d) - X0)}" height="14" rx="7" class="sm-fill ${cls}"/>
     ${m(alert, "alert", `alert ${alert}`, false)}${m(balEnd, "bend", `stop ${Math.round(balEnd)}`, false, "vc_balance_end")}${m(balStart, "bstart", `balance ${Math.round(balStart)}`, true, "vc_balance_start")}
@@ -143,7 +143,7 @@ export function socRing(soc, { limitPct = null, charging = false, host = "", act
   const body = `<circle cx="60" cy="60" r="${R}" class="ring-track"/>${room}${fill}
     <text x="60" y="66" text-anchor="middle" class="ring-pct">${pct}<tspan class="ring-unit">%</tspan></text>
     <text x="60" y="84" text-anchor="middle" class="ring-sub">${esc(label)}</text>`;
-  return `<svg class="ring" viewBox="-6 -6 132 132" role="img" aria-label="${esc(label)} ${pct} percent">
+  return `<svg class="ring" viewBox="-6 -6 132 132" role="${act ? "group" : "img"}" aria-label="${esc(label)} ${pct} percent">
     ${act ? `<g data-act="cells"${h} role="button" tabindex="0" class="ring-tap" data-tip="State of charge ${pct}% · tap for all cells">${body}</g>` : body}${tick}</svg>`;
 }
 

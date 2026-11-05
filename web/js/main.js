@@ -1,6 +1,6 @@
 // App shell: polling, routing (#b=<host>&t=<tab>), header, tabs, event wiring.
 
-import { $, $$, alertCfg, api, ask, AWAKE_FIX, AWAKE_WARN, balanceState, boardAlerts, boardName, canWrite, esc, f3, fail, hooks, placeTip, S, showMsg, skipConfirm, stamp12, store, toast, toggleOpen } from "./core.js";
+import { setInner, $, $$, alertCfg, api, ask, AWAKE_FIX, AWAKE_WARN, balanceState, boardAlerts, boardName, canWrite, esc, f3, fail, hooks, placeTip, S, showMsg, skipConfirm, stamp12, store, toast, toggleOpen } from "./core.js";
 import { dur } from "./charts.js";
 import { drawDevices, initDevices, initGuide, openGuide } from "./guide.js";
 import { forget, historyView, resetHistoryCache } from "./history.js";
@@ -64,22 +64,44 @@ function currentBoard() {
 
 // ---------------------------------------------------------------- data
 
-async function refresh() {
-  try {
-    S.state = await api("/api/state");
-    $("#lost").hidden = true;
-    render();
-  } catch (e) {
-    $("#lost").hidden = false;
-    $("#lost").innerHTML = `<b>Lost contact with VBMS Manager</b> (${esc(e.message)}). Is it still running?`;
-  }
+// One /api/state request at a time: on a slow link (Bluetooth boards, a phone on weak WiFi) polls would otherwise
+// pile up, and an older answer arriving late could overwrite a newer one. The cell database and charge-limit ranges
+// never change while the server runs, so they're fetched once and every later poll asks for the slim version.
+let refreshing = null;
+function refresh() {
+  if (refreshing) return refreshing;
+  refreshing = (async () => {
+    try {
+      const st = await api("/api/state" + (S.base ? "?live=1" : ""));
+      if (st.cells) S.base = { cells: st.cells, limits: st.limits };
+      S.state = Object.assign({}, S.base, st);
+      $("#lost").hidden = true;
+      storeWarning(S.state.store_warning);
+      render();
+    } catch (e) {
+      $("#lost").hidden = false;
+      $("#lost").innerHTML = `<b>Lost contact with VBMS Manager</b> (${esc(e.message)}). Is it still running?`;
+    }
+  })().finally(() => { refreshing = null; });
+  return refreshing;
+}
+
+function storeWarning(w) {
+  const el = $("#storeWarn");
+  if (!el) return;
+  el.hidden = !w;
+  if (w) setHtml(el, `<b>Board settings had to be recovered.</b> ${esc(w)}`);
 }
 
 async function reloadDetail(host) {
   try {
     S.detail.set(host, await api("/api/board?host=" + encodeURIComponent(host)));
+    S.detailError.delete(host);
     render();
-  } catch { /* the next poll shows connection problems */ }
+  } catch (e) {
+    // Shown where the settings would be (instead of "Loading settings…" forever); retried on the next poll.
+    if (!S.detail.has(host)) { S.detailError.set(host, e.message); render(); }
+  }
 }
 
 let lastDetail = 0;
@@ -101,7 +123,7 @@ hooks.rerender = () => render();
 // ---------------------------------------------------------------- rendering
 
 function setHtml(el, html) {
-  if (el._html !== html) { el._html = html; el.innerHTML = html; return true; }
+  if (el._html !== html) { el._html = html; setInner(el, html); return true; }
   return false;
 }
 
@@ -122,10 +144,15 @@ window.addEventListener("resize", () => { if (!$("#tabs").hidden) tabsChanged();
 
 function notify(b) {
   const list = boardAlerts(b);
+  const first = !alertState.has(b.host);   // alerts already showing when the page opened aren't news
   const prev = alertState.get(b.host) || new Set();
   const a = alertCfg();
   const can = "Notification" in window && Notification.permission === "granted";
-  if (a.notify && can) {
+  if (!first) {   // new BMS alerts are read out by screen readers (the banners redraw too often to be live regions)
+    const fresh = list.filter((x) => !prev.has(x.k));
+    if (fresh.length) $("#srLive").textContent = boardName(b) + ": " + fresh.map((x) => x.t).join(". ");
+  }
+  if (a.notify && can && !first) {
     for (const x of list) if (!prev.has(x.k)) new Notification(boardName(b) + ": BMS alert", { body: x.t });
   }
   alertState.set(b.host, new Set(list.map((x) => x.k)));
@@ -315,7 +342,7 @@ document.addEventListener("click", (e) => {
 let tip = null;
 function showTip(el) {
   if (!tip) { tip = document.createElement("div"); tip.className = "tip"; document.body.appendChild(tip); }
-  tip.textContent = el.dataset.tip; tip.hidden = false;
+  tip.textContent = el.dataset.tip; tip.hidden = false; tip._for = el;
   placeTip(tip, el.getBoundingClientRect());
 }
 document.addEventListener("mouseover", (e) => {
@@ -323,11 +350,22 @@ document.addEventListener("mouseover", (e) => {
   if (el) showTip(el); else if (tip) tip.hidden = true;
 });
 document.addEventListener("focusin", (e) => { const el = e.target.closest("[data-tip]"); if (el) showTip(el); });
+// On a touchscreen the tip appears on touch. For the controls that change the board (charging and balancing
+// indicators and switches), that first tap only shows the tip; tapping again while it shows does the action.
+// Otherwise reading what a switch does would also flip it (straight away, with confirmations skipped).
+const TIP_FIRST = ".ind[data-act], .aswitch[data-act]";
+let tipFirst = null;
 document.addEventListener("pointerdown", (e) => {
   if (e.pointerType !== "touch") return;
   const el = e.target.closest("[data-tip]");
+  const showing = !!(tip && !tip.hidden && tip._for === el);
+  tipFirst = el && el.matches(TIP_FIRST) && !showing ? el : null;
   if (el) showTip(el); else if (tip) tip.hidden = true;
 });
+document.addEventListener("click", (e) => {
+  if (tipFirst && tipFirst.contains(e.target)) { e.preventDefault(); e.stopImmediatePropagation(); }
+  tipFirst = null;
+}, true);
 window.addEventListener("scroll", () => { if (tip) tip.hidden = true; }, { passive: true });
 
 // ---------------------------------------------------------------- header dialogs
@@ -437,8 +475,10 @@ function drawPrefMore() {
       <button type="button" class="small" id="keyMake">Make key</button></div>` : `<p class="muted small">API keys are managed from the computer running VBMS Manager.</p>`}
 
     <h3>Internet</h3>
-    <div class="prefrow"><div><b>Allow the web page from the internet</b><p class="muted small">Off: clients from outside your networks (a forwarded port) only get the API, with a key. On: they're treated like devices on your WiFi: they can watch, and pair with the pairing code to make changes. Keep this off unless you need it.</p></div>
-      <label class="switch"><input type="checkbox" id="prefNet"${st.internet_ui ? " checked" : ""}${local ? "" : " disabled"}><span></span></label></div>`);
+    <div class="prefrow"><div><b>Allow the web page from the internet</b><p class="muted small">Off: clients from outside your networks (a forwarded port) only get the API, with a key. On: they can also watch every board in the web page, view-only. Pairing a device to make changes only works from your own network. Keep this off unless you need it.</p></div>
+      <label class="switch"><input type="checkbox" id="prefNet"${st.internet_ui ? " checked" : ""}${local ? "" : " disabled"}><span></span></label></div>
+    <div class="prefrow"><div><b>Treat every other device as the internet</b><p class="muted small">For Docker with port mapping, or a router that rewrites addresses on a forwarded port: then internet clients arrive with an address from your network and would look like a device on your WiFi. On: only this computer counts as local, every other device is handled as "internet" (API with a key, plus the web page only if the switch above is on), and no device can be paired.</p></div>
+      <label class="switch"><input type="checkbox" id="prefLanU"${st.lan_untrusted ? " checked" : ""}${local ? "" : " disabled"}><span></span></label></div>`);
   const ph = $("#apiPhrase");
   if (ph) ph.oninput = () => ($("#apiOnBtn").disabled = ph.value.trim().toLowerCase() !== "allow api requests");
 }
@@ -453,8 +493,14 @@ $("#prefMore").addEventListener("change", async (e) => {
   if (t.id === "prefNet") {
     const want = t.checked;
     t.checked = !want;
-    if (want && !window.confirm("Let clients from the internet open the web page?\n\nThey can watch every board, and anyone who gets the pairing code can change them.")) return;
+    if (want && !window.confirm("Let clients from the internet open the web page?\n\nThey can watch every board (view-only).")) return;
     try { await api("/api/prefs", { internet_ui: want }); await refresh(); openPrefs(); } catch (x) { fail(x); }
+  }
+  if (t.id === "prefLanU") {
+    const want = t.checked;
+    t.checked = !want;
+    if (want && !window.confirm("Treat every device except this computer as the internet?\n\nPhones and other computers on your WiFi then need an API key, or the web-page switch above to watch, and can't be paired.")) return;
+    try { await api("/api/prefs", { lan_untrusted: want }); await refresh(); openPrefs(); } catch (x) { fail(x); }
   }
 });
 $("#prefMore").addEventListener("click", async (e) => {
@@ -529,6 +575,7 @@ async function showLog(name) {
         if (r.event === "timer") return `Timer for ${esc(r.at)}: ${esc(r.what)}${r.confirm === "skipped" ? ' <span class="muted">(no confirmation)</span>' : ""}`;
         if (r.event === "prefs" && "api" in r) return `API requests turned <b>${r.api ? "on" : "off"}</b>`;
         if (r.event === "prefs" && "internet_ui" in r) return `Web page from the internet <b>${r.internet_ui ? "allowed" : "blocked"}</b>`;
+        if (r.event === "prefs" && "lan_untrusted" in r) return `Other devices treated as the internet: <b>${r.lan_untrusted ? "on" : "off"}</b>`;
         if (r.event === "prefs" && "safety" in r) return "Safety settings saved";
         if (r.event === "prefs") return `Write confirmations turned <b>${r.confirm_skip ? "off" : "on"}</b>`;
         if (r.event === "api_key") return `API key ${r.action === "create" ? `<b>${esc(r.label)}</b> made (${esc((r.scopes || []).join(", "))}${r.danger ? ", danger" : ""})` : "revoked"}`;
@@ -598,4 +645,8 @@ window.addEventListener("beforeunload", (e) => {
 });
 window.addEventListener("hashchange", () => { readRoute(); render(); loadDetailIfNeeded(true); window.scrollTo({ top: 0 }); });
 refresh().then(() => { migrateAlerts(); loadDetailIfNeeded(true); });
-setInterval(() => { refresh().then(() => loadDetailIfNeeded()); }, 1000);
+// Poll every second while the page is visible. In a background tab (or with the phone locked) poll every 10 s:
+// enough for alert notifications to still arrive, a tenth of the traffic. Catch up at once when it comes back.
+let ticks = 0;
+setInterval(() => { if (!document.hidden || ++ticks % 10 === 0) refresh().then(() => loadDetailIfNeeded()); }, 1000);
+document.addEventListener("visibilitychange", () => { if (!document.hidden) refresh().then(() => loadDetailIfNeeded(true)); });

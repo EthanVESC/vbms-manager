@@ -1,7 +1,8 @@
 # VBMS Manager API (v1)
 
 The API lets scripts, home automation and other computers read your boards and change them over HTTP.
-It's served on the same port as the web page, under `/api/v1`.
+It's served on the same port as the web page, under `/api/v1`. This reference is also built into VBMS Manager
+at `/docs/api` (for example `http://127.0.0.1:8642/docs/api`), and Preferences → API links to it.
 
 ## Turning it on
 
@@ -54,13 +55,14 @@ Too many bad keys from one address in a minute gets HTTP 429 for a minute.
 ## Boards
 
 Wherever a path has `{id}`, use the board's MAC (`AA:BB:CC:DD:EE:FF` or `aabbccddeeff`), its IP/host as added,
-or its nickname (case doesn't matter).
+or its nickname (case doesn't matter). Encode spaces in a nickname as `%20`, as curl and most HTTP libraries need
+anyway: `/api/v1/boards/Street%20board/cells`.
 
 ## Reading (`read` scope)
 
 | GET | Returns |
 |---|---|
-| `/api/v1/status` | Version, board counts, this key's name and scopes |
+| `/api/v1/status` | Version, board counts, this key's name and scopes, and `docs` (the path of this reference) |
 | `/api/v1/boards` | Every board in compact form, described after this table |
 | `/api/v1/boards/{id}` | Everything the web page knows about the board, including the config, editable fields and recent events |
 | `/api/v1/boards/{id}/cells` | Cell voltages, balancing flags, temperatures |
@@ -109,7 +111,8 @@ answers 422 or 409 otherwise.
 
 ## Errors
 
-Errors come back as JSON `{"error": "...", "code": "..."}`:
+Errors come back as JSON `{"error": "...", "code": "..."}`. Errors about keys, scopes, values and unknown
+endpoints also carry `"docs": "/docs/api"`.
 
 | HTTP | code | Meaning |
 |---|---|---|

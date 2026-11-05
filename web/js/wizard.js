@@ -12,6 +12,11 @@ const DONE = STEPS.length - 1;
 let W = null; // {host, step, opened}
 export const wizardSeen = new Set(); // macs auto-opened this page session
 export const wizardOpen = () => W !== null;
+// Each dlg.close() fires exactly one "close" event, a moment later. Closes we make ourselves (Finish,
+// Set a charge limit) are counted here so their event can't end a wizard opened in the meantime for the
+// next new board.
+let ownCloses = 0;
+function closeOwn(dlg) { if (dlg.open) { ownCloses++; dlg.close(); } }
 
 const board = () => S.state.boards.find((x) => x.host === W.host);
 
@@ -21,7 +26,6 @@ export async function openWizard(host, auto = false) {
   if (auto) wizardSeen.add(b.mac);
   W = { host, step: 0 };
   const dlg = $("#wizDlg");
-  dlg.onclose = () => finish(false);
   await draw();
   if (!dlg.open) dlg.showModal();
 }
@@ -31,12 +35,14 @@ async function detail() {
   return S.detail.get(W.host);
 }
 
-async function finish(openLimit) {
+// done: Finish / Set a charge limit (marks setup done). Closing early (✕, Esc) doesn't: the board
+// shows a "Finish board setup" banner instead, and writes stay locked until the steps are done.
+async function finish(openLimit, done = true) {
   if (!W) return;
   const b = board();
   const host = W.host;
   W = null;
-  if (b && b.mac && !b.setup_done) {
+  if (done && b && b.mac && !b.setup_done) {
     try { await api("/api/board/profile", { host, mac: b.mac, setup_done: true }); } catch (e) { fail(e); }
   }
   await hooks.refresh();
@@ -139,6 +145,7 @@ function riskHtml(b) {
       </ul>
     </div>
 
+    <details class="riskmore"><summary>How it works, what it can change and how it checks itself</summary>
     <h4>How it works</h4>
     <p class="small">It talks to the BMS over WiFi using VESC's own protocol (TCP port 65102), or over Bluetooth with the same protocol if you switch it in the Mac app. Most of the time it only <b>reads</b>: cell voltages, temperatures, the config, and the Lisp script running on the BMS.</p>
 
@@ -160,6 +167,7 @@ function riskHtml(b) {
       <li>When you confirm, it reads the board again. It checks that it's the same board (MAC address) and that the config hasn't changed. Then it saves a full backup, writes, reads the config back, and requires an exact match. Every write is logged.</li>
       <li>The add-on only installs with the charger unplugged, because the script is stopped while it's written. A copy of the old script is saved first. The new one must read back exactly before it's started; if anything fails, the old one is written back.</li>
     </ul>
+    </details>
 
     <h4>Your approval</h4>
     <ul class="small">
@@ -192,6 +200,10 @@ async function act(fn) {
 
 export function initWizard() {
   const dlg = $("#wizDlg");
+  dlg.addEventListener("close", () => {
+    if (ownCloses > 0) { ownCloses--; return; }
+    finish(false, false);
+  });
   $("#wizBody").addEventListener("change", (e) => {
     if (e.target.id === "wzRisk") { $("#wizNext").disabled = !e.target.checked; return; }
     if (e.target.name === "wzCell") {
@@ -225,10 +237,10 @@ export function initWizard() {
       const nm = $("#wzName").value.trim();
       if (nm !== (b.nickname || "")) { try { await api("/api/board/profile", { host: b.host, mac: b.mac, nickname: nm }); await hooks.refresh(); } catch (e) { return fail(e); } }
     }
-    if (W.step === DONE) { dlg.onclose = null; dlg.close(); return finish(false); }
+    if (W.step === DONE) { closeOwn(dlg); return finish(false); }
     W.step += 1;
     draw();
   };
-  $("#wizLimit").onclick = () => { dlg.onclose = null; dlg.close(); finish(true); };
+  $("#wizLimit").onclick = () => { closeOwn(dlg); finish(true); };
 }
 

@@ -50,7 +50,7 @@ python3 vbms_manager.py
 python3 -m unittest discover -s tests -t .
 ```
 
-To try changes without a real board, run the mock BMS (`python3 -m tests.mock_bms vbms32_32s 65199 --sim`) and add `127.0.0.1:65199` in the UI. Use a throwaway data folder so you don't touch your own boards' data: `VBMS_MANAGER_HOME=/tmp/vbms-test python3 vbms_manager.py --port 8650`. `tools/seed_history.py` fills such a folder with weeks of synthetic history.
+To try changes without a real board, run the mock BMS (`python3 -m tests.mock_bms vbms32_32s 65199 --sim`) and add `127.0.0.1:65199` in the UI. Use a throwaway data folder so you don't touch your own boards' data: `VBMS_MANAGER_HOME=/tmp/vbms-test python3 vbms_manager.py --port 8650`. `tools/seed_history.py` fills such a folder with weeks of synthetic history. `tools/dev_server.sh` does all of that in one go: two simulated boards (32s and 18s), seeded history and VBMS Manager on port 8650, in a throwaway folder (`VBMS_DEV_FRESH=1` starts it empty, to test first-run setup). It refuses port 8642 and `~/.vbms_manager`, so your own copy can keep running.
 
 When you change the safety warning text in substance, bump `RISK_VERSION` in `safe_write.py` so every board asks again.
 

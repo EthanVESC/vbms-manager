@@ -6,6 +6,7 @@ import { $, allowState, api, switching, ask, boardName, canWrite, cellsCount, cl
 import { socRing } from "./viz.js";
 
 const RISK = { caution: "⚠ Caution", danger: "⛔ Danger" };
+const LOG = { label: "View in log", run: () => hooks.openLog("changes") };
 
 function riskHtml(risks) {
   return (risks || []).map((r) => `<div class="risk ${r.level}"><b>${RISK[r.level] || r.level}</b> ${esc(r.text)}</div>`).join("");
@@ -42,34 +43,37 @@ export function confirmWrite(p) {
 }
 
 // during(fn): runs the commit, e.g. to show a switch as working while the board is written.
-async function finish(b, prop, during = (fn) => fn()) {
+// committed(res): called as soon as the board has confirmed the write, before the page redraws.
+async function finish(b, prop, during = (fn) => fn(), committed = null) {
   const body = { host: b.host, mac: b.mac };
   const c = await confirmWrite(prop);
   if (!c.ok) { api("/api/write/cancel", { id: prop.id }).catch(() => {}); return null; }
   const res = await during(async () => {
     const r = await api("/api/write/commit", { ...body, id: prop.id, confirm_text: c.text, skipped_confirm: !!c.skipped });
+    if (committed) committed(r);
     await hooks.refresh();
     return r;
   });
-  const list = (res.rows || []).map((r) => `${r.label}: ${r.new}`).join(", ");
+  const list = (res.rows || []).map((r) => `${r.label} ${r.new}`).join(", ");
   if (res.kind === "script") showMsg("Installed and verified", `<p>The board read back exactly the new script and restarted it. It beeps twice when it's up.</p>
     <p><b>${esc(res.undo)}</b></p>
     <p class="muted small">Copy of the previous script:<br><span class="mono">${esc(res.backup)}</span></p>`);
-  else if (c.skipped) toast(`Written and verified: ${list}`);
-  else showMsg("Written and verified", `<p>The board read back exactly what was written:</p>
-    <ul>${(res.rows || []).map((r) => `<li>${esc(r.label)}: <b>${esc(r.new)}</b></li>`).join("")}</ul>
-    <p class="muted small">Backup of the previous config:<br><span class="mono">${esc(res.backup)}</span></p>`);
+  else {
+    // Success is a toast (the change log has the details and the backup's path); failures keep the full message.
+    if ($("#msgDlg").open) $("#msgDlg").close();
+    toast(`✓ Written and verified on ${boardName(b)}: ${list}`, LOG);
+  }
   await hooks.reloadDetail(b.host);
   return res;
 }
 
-async function run(b, prepPath, prepBody) {
+async function run(b, prepPath, prepBody, committed) {
   const prop = await api(prepPath, { host: b.host, mac: b.mac, ...prepBody });
-  return finish(b, prop);
+  return finish(b, prop, undefined, committed);
 }
 
-export async function writeFields(b, changes) {
-  try { return await run(b, "/api/config/prepare", { changes }); } catch (e) { fail(e); return null; }
+export async function writeFields(b, changes, committed) {
+  try { return await run(b, "/api/config/prepare", { changes }, committed); } catch (e) { fail(e); return null; }
 }
 
 export async function restoreBackup(b, id) {
@@ -161,7 +165,7 @@ export async function toggleBalance(b) {
   try {
     const prop = await working(() => api("/api/balance/prepare", { host: b.host, mac: b.mac, allow: !a.on }));
     if (prop.noop) { await hooks.refresh(); return toast("The board already has that."); }
-    if (await finish(b, prop, working)) toast(a.on ? `Balancing off on ${boardName(b)} (Balance Max Current 0 A).` : `Balancing allowed again on ${boardName(b)}.`);
+    if (await finish(b, prop, working)) toast(a.on ? `✓ Balancing off on ${boardName(b)} (Balance Max Current 0 A, verified).` : `✓ Balancing allowed again on ${boardName(b)} (verified).`, LOG);
   } catch (e) { fail(e); }
 }
 
@@ -383,11 +387,23 @@ export function openChargeSheet(b) {
     if (a === "preset") r.value = t.dataset.p;
     upd();
   };
-  $("#sheetOk").onclick = (e) => {
+  $("#sheetOk").onclick = async (e) => {
     e.preventDefault();
+    if (later()) { dlg.close(); setTimer(b, { at: pickedAt(form), pct, charge: form.elements.startchg.checked ? "on" : null }); return; }
+    // Check with the server first; if it refuses, say why here and keep the chosen value.
+    const ok = $("#sheetOk"), was = ok.textContent;
+    ok.disabled = true; ok.textContent = "Checking…";
+    let prop;
+    try { prop = await api("/api/charge/prepare", { host: b.host, mac: b.mac, pct }); }
+    catch (x) {
+      ok.disabled = false; ok.textContent = was;
+      let err = body.querySelector("[data-role=err]");
+      if (!err) { err = document.createElement("div"); err.className = "banner bad"; err.dataset.role = "err"; body.prepend(err); }
+      err.textContent = `Not written: ${x.message}`;
+      return;
+    }
     dlg.close();
-    if (later()) setTimer(b, { at: pickedAt(form), pct, charge: form.elements.startchg.checked ? "on" : null });
-    else writeCharge(b, { pct });
+    try { await finish(b, prop); } catch (x) { fail(x); }
   };
   upd();
   dlg.showModal();
@@ -400,7 +416,7 @@ export async function setStorage(b, on) {
   try {
     const prop = await api("/api/storage/prepare", { host: b.host, mac: b.mac, on });
     if (prop.noop) { await hooks.refresh(); await hooks.reloadDetail(b.host); return toast(on ? `Storage mode on (${boardName(b)} already had those settings).` : `Storage mode off (${boardName(b)}).`); }
-    if (await finish(b, prop)) toast(on ? `Storage mode on for ${boardName(b)}.` : `Storage mode off for ${boardName(b)}: settings from before are back.`);
+    if (await finish(b, prop)) toast(on ? `✓ Storage mode on for ${boardName(b)} (verified).` : `✓ Storage mode off for ${boardName(b)}: settings from before are back (verified).`, LOG);
   } catch (e) { fail(e); }
 }
 

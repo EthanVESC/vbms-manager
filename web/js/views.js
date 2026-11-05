@@ -31,13 +31,19 @@ export function banner(b) {
   const v = b.values;
   const msgs = [];
   if (b.state !== "online" && b.error) msgs.push({ t: b.error });
-  const bt = linkHint(b);
+  const bt = linkHint(b) + setupHint(b);
   if (b.state === "online" && b.cells_configured && v && b.cells_configured !== v.cells.length)
     msgs.push({ t: `Config says ${b.cells_configured} cells but the BMS reports ${v.cells.length}.`, bad: true });
   if (b.values_age != null && b.values_age > 5 && b.state === "online") msgs.push({ t: `Live data is ${b.values_age}s old. The board is slow to answer over ${b.link === "ble" ? "Bluetooth" : "WiFi"}; still trying.` });
   msgs.push(...boardAlerts(b));
   if (!msgs.length) return bt ? `<div class="banner">${bt}</div>` : "";
   return `<div class="banner${msgs.some((m) => m.bad) ? " bad" : ""}">${msgs.length === 1 ? esc(msgs[0].t) : "<ul>" + msgs.map((m) => `<li>${esc(m.t)}</li>`).join("") + "</ul>"}${bt ? "<br>" + bt : ""}</div>`;
+}
+
+// Board setup was closed before the end: say so, with a way back in.
+function setupHint(b) {
+  if (!b.mac || b.setup_done !== false || !canWrite()) return "";
+  return `${b.risk_ok === false ? "Board setup isn't finished: VBMS Manager only reads from this board until it is." : "Board setup isn't finished."} <button type="button" class="small" data-act="wizard" data-host="${esc(b.host)}">Finish board setup ›</button>`;
 }
 
 // Offer Bluetooth when a WiFi board can't be reached. Switching is always by hand.
@@ -405,7 +411,7 @@ export function chargingView(root, b, d) {
       <section class="panel"><h3>Charge limit</h3><div data-slot="limit"></div><div data-slot="chgline"></div></section>
       <section class="panel"><h3>Live control</h3><div data-slot="live"></div></section>
     </div>
-    <section class="panel"><h3>Schedule</h3><div data-slot="schedule"></div></section>
+    <section class="panel link" data-goto="schedule"><h3>Schedule <span class="more">Open schedule ›</span></h3><div data-slot="schedule"></div></section>
     <section class="panel"><h3>Charging settings</h3><div data-form="charging"></div></section>`);
   slot(root, "banner", banner(b));
   slot(root, "limit", limitButton(b));
@@ -417,8 +423,16 @@ export function chargingView(root, b, d) {
     <div class="row">${laterBtn(b, { charge: "on" })}<span class="muted small">Start or stop charging, or set a limit, at a time you pick</span></div>
     ${timerList(b)}
     <p class="muted small">Pause/Allow is a live command: it isn't saved to the BMS and resets when it restarts or wakes from sleep. A tap overrides the schedule until its next change.</p>`);
-  renderSchedule(root.querySelector('[data-slot="schedule"]'), b);
+  slot(root, "schedule", scheduleSummary(b));
   renderForm(root.querySelector('[data-form="charging"]'), b, group(d, "charging"));
+}
+
+// ---------------------------------------------------------------- schedule
+
+export function scheduleView(root, b) {
+  skeleton(root, "schedule|" + b.host, `<div data-slot="banner"></div><div class="schedview" data-sched-root></div>`);
+  slot(root, "banner", banner(b));
+  renderSchedule(root.querySelector("[data-sched-root]"), b);
 }
 
 // ---------------------------------------------------------------- balancing

@@ -26,7 +26,7 @@ if sys.version_info < (3, 8):
 import access  # noqa: E402
 import server  # noqa: E402
 
-VERSION = "1.0.0"
+VERSION = "1.0.1"
 
 
 def exit_with_parent():

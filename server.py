@@ -29,6 +29,7 @@ import board as board_mod
 import cells
 import charge_limit
 import datalog
+import docs_page
 import safe_write
 import bulk
 import safety
@@ -760,7 +761,7 @@ def make_handler(app: App, port: int):
         def _internet_page(self):
             data = (b"This VBMS Manager only answers API requests (/api/v1, with an API key) from outside your "
                     b"network.\nTo use the web page from here, allow it in Preferences on the computer running "
-                    b"VBMS Manager, or use a VPN.\n")
+                    b"VBMS Manager, or use a VPN.\nAPI reference: /docs/api\n")
             self.send_response(403)
             self.send_header("Content-Type", "text/plain; charset=utf-8")
             self.send_header("Content-Length", str(len(data)))
@@ -800,6 +801,8 @@ def make_handler(app: App, port: int):
             if self.path.startswith("/api/v1/") or self.path == "/api/v1":
                 return self._api_v1("GET")
             role = self._role()
+            if urlparse(self.path).path.rstrip("/") == docs_page.PATH:
+                return self._docs()   # public reference, no token: every client may read it
             if role == "internet":
                 return self._internet_page()
             if role == "reject":
@@ -853,6 +856,16 @@ def make_handler(app: App, port: int):
             except (ApiError, ValueError) as e:
                 return self._json({"error": str(e)}, 400)
             return self._static(u.path)
+
+        def _docs(self):
+            data = docs_page.page(getattr(app, "version", ""))
+            self.send_response(200)
+            self.send_header("Content-Type", "text/html; charset=utf-8")
+            self.send_header("Cache-Control", "no-cache")
+            self.send_header("X-Content-Type-Options", "nosniff")
+            self.send_header("Content-Length", str(len(data)))
+            self.end_headers()
+            self.wfile.write(data)
 
         def _static(self, path):
             if path in ("", "/"):

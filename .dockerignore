@@ -5,6 +5,7 @@
 !cells/
 !web/
 !lisp/
+!docs/
 **/__pycache__
 **/*.pyc
 **/.DS_Store

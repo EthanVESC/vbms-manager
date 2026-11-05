@@ -192,5 +192,61 @@ class TestInternet(ApiBase):
         self.assertIsNotNone(self.app.internet_seen)
 
 
+class TestDocs(ApiBase):
+    def get_raw(self, path, headers=()):
+        req = urllib.request.Request(self.base + path)
+        for k, v in headers:
+            req.add_header(k, v)
+        try:
+            with urllib.request.urlopen(req, timeout=20) as r:
+                return r.status, r.headers.get("Content-Type"), r.read().decode()
+        except urllib.error.HTTPError as e:
+            return e.code, e.headers.get("Content-Type"), e.read().decode()
+
+    def test_docs_page_for_every_client(self):
+        for hdrs in ([], [("X-Forwarded-For", "8.8.8.8")], [("X-Forwarded-For", "192.168.1.9")]):
+            code, ctype, page = self.get_raw("/docs/api", hdrs)
+            self.assertEqual(code, 200, hdrs)
+            self.assertTrue(ctype.startswith("text/html"))
+            self.assertIn("<h1", page)
+            self.assertIn("/api/v1/boards", page)
+            self.assertIn("<table>", page)
+            self.assertNotIn(self.app.token, page)        # never the UI token
+            self.assertNotIn("<script", page)
+        self.assertEqual(self.get_raw("/docs/api/")[0], 200)
+        # the web page itself is still closed to internet clients
+        self.assertEqual(self.get_raw("/", [("X-Forwarded-For", "8.8.8.8")])[0], 403)
+
+    def test_docs_link_in_api_answers(self):
+        code, r = self.call("GET", "/api/v1/status")
+        self.assertEqual((code, r["code"], r["docs"]), (403, "api_off", "/docs/api"))
+        key = self.enable()
+        self.assertEqual(self.call("GET", "/api/v1/status", key=key)[1]["docs"], "/docs/api")
+        self.assertEqual(self.call("GET", "/api/v1/nope", key=key)[1]["docs"], "/docs/api")
+
+    def test_nickname_with_space(self):
+        key = self.enable()
+        self.app.set_profile({"host": self.mock.host, "nickname": "Street Board"})
+        code, r = self.call("GET", "/api/v1/boards/street%20board/cells", key=key)
+        self.assertEqual(code, 200, r)
+
+
+class TestMarkdown(unittest.TestCase):
+    def test_subset(self):
+        import docs_page
+        body, heads = docs_page.render_markdown(
+            "# Title\n\nSome **bold** `a<b>` and [link](https://x.example/?a=1&b=2).\n\n"
+            "- one\n  - nested `x`\n- two\n\n| A | B |\n|---|---|\n| `c` | d |\n\n```bash\necho <hi>\n```\n"
+            "[bad](javascript:alert(1))\n")
+        self.assertEqual(heads[0][:2], (1, "Title"))
+        self.assertIn("<b>bold</b>", body)
+        self.assertIn("<code>a&lt;b&gt;</code>", body)
+        self.assertIn('href="https://x.example/?a=1&amp;b=2"', body)
+        self.assertIn("<ul><li>one<ul><li>nested <code>x</code></li></ul></li><li>two</li></ul>", body)
+        self.assertIn("<th>A</th>", body)
+        self.assertIn("echo &lt;hi&gt;", body)
+        self.assertNotIn('href="javascript', body)
+
+
 if __name__ == "__main__":
     unittest.main()

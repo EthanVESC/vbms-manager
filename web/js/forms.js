@@ -130,14 +130,21 @@ export function renderForm(box, b, group, { intro = "", only = null } = {}) {
     const t = e.target.closest("[data-formbtn]");
     if (!t) return;
     if (t.dataset.formbtn === "discard") { for (const k of Object.keys(dmap)) delete dmap[k]; box.dataset.key = ""; renderForm(box, b, group, { intro, only }); return; }
-    const res = await writeFields(b, { ...dmap });
-    if (res) { for (const k of Object.keys(dmap)) delete dmap[k]; box.dataset.key = ""; }
+    const sent = { ...dmap };
+    await writeFields(b, sent, () => {
+      for (const k of Object.keys(sent)) if (dmap[k] === sent[k]) delete dmap[k];
+      box.dataset.key = "";
+    });
   };
   sync();
 }
 
-export function hasDirty(host) {
-  for (const [k, m] of dirty) if (k.startsWith(host + "|") && Object.keys(m).length) return true;
+// groups: only these setting groups (the ones a tab shows); all of them when left out.
+export function hasDirty(host, groups) {
+  for (const [k, m] of dirty) {
+    const [h, g] = k.split("|");
+    if (h === host && (!groups || groups.includes(g)) && Object.keys(m).length) return true;
+  }
   return false;
 }
 

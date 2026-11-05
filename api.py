@@ -14,11 +14,12 @@ with scopes:
 Restoring backups and installing add-ons are never available over the API.
 
 Every write takes ?dry_run=1 (or "dry_run": true) to see what would change without writing.
-See docs/API.md.
+See docs/API.md, also served as a page at /docs/api.
 """
 
 import sys
 import time
+from urllib.parse import unquote
 
 import charge_limit
 import bulk
@@ -38,6 +39,10 @@ class ApiFail(Exception):
         self.status, self.code, self.extra = status, code, extra
 
 
+DOCS = "/docs/api"                                   # the API reference, served by VBMS Manager itself
+DOCS_ON = ("api_off", "no_key", "bad_key", "not_found", "scope", "danger", "invalid")
+
+
 def _truthy(v):
     return v is True or str(v).lower() in ("1", "true", "yes")
 
@@ -55,7 +60,10 @@ class Api:
             key = self._auth(headers, ip)
             return 200, self._route(method, path.rstrip("/"), query, body, key, ip)
         except ApiFail as e:
-            return e.status, dict({"error": str(e), "code": e.code}, **e.extra)
+            out = dict({"error": str(e), "code": e.code}, **e.extra)
+            if e.code in DOCS_ON:
+                out["docs"] = DOCS
+            return e.status, out
         except Exception as e:  # keep the server alive; report the problem
             return 500, {"error": "%s: %s" % (type(e).__name__, e), "code": "internal"}
 
@@ -109,7 +117,7 @@ class Api:
     # -- routing ---------------------------------------------------------------
 
     def _route(self, method, path, q, body, key, ip):
-        parts = [p for p in path.split("/") if p][2:]  # drop "api", "v1"
+        parts = [unquote(p) for p in path.split("/") if p][2:]  # drop "api", "v1"; "Street%20board" -> "Street board"
         dry = _truthy(q.get("dry_run")) or _truthy(body.get("dry_run"))
         if method == "GET":
             self._need(key, "read")
@@ -122,7 +130,7 @@ class Api:
         if len(parts) >= 3 and parts[0] == "boards":
             b = self._board(parts[1])
             return self._post_board(b, parts[2:], body, key, ip, dry)
-        raise ApiFail(404, "not_found", "no such endpoint (see docs/API.md)")
+        raise ApiFail(404, "not_found", "no such endpoint (see /docs/api)")
 
     # -- reads -----------------------------------------------------------------
 
@@ -133,7 +141,7 @@ class Api:
                 boards = list(app.boards.values())
             return {"ok": True, "version": app.version, "time": time.time(), "boards": len(boards),
                     "online": sum(1 for b in boards if b.state == "online"), "key": key["label"],
-                    "scopes": key["scopes"], "danger": key["danger"]}
+                    "scopes": key["scopes"], "danger": key["danger"], "docs": DOCS}
         if parts == ["boards"]:
             with app.lock:
                 boards = list(app.boards.values())
@@ -179,7 +187,7 @@ class Api:
                         "status": app.scheduler.status(b)}
             if sub == ["storage"]:
                 return {"storage": b.profile().get("storage"), "cfg": storage.cfg(b.profile())}
-        raise ApiFail(404, "not_found", "no such endpoint (see docs/API.md)")
+        raise ApiFail(404, "not_found", "no such endpoint (see /docs/api)")
 
     def summary(self, b, brief=False):
         prof = b.profile() if b.mac else {}
@@ -348,7 +356,7 @@ class Api:
             raise ApiFail(409, "refused", str(e))
         except (VescError, OSError) as e:
             raise ApiFail(409, "link", "board connection problem: %s" % e)
-        raise ApiFail(404, "not_found", "no such endpoint (see docs/API.md)")
+        raise ApiFail(404, "not_found", "no such endpoint (see /docs/api)")
 
     def _schedule(self, b, body, key, dry):
         app = self.app

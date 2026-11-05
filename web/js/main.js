@@ -4,21 +4,35 @@ import { $, $$, alertCfg, api, ask, AWAKE_FIX, AWAKE_WARN, balanceState, boardAl
 import { dur } from "./charts.js";
 import { drawDevices, initDevices, initGuide, openGuide } from "./guide.js";
 import { forget, historyView, resetHistoryCache } from "./history.js";
-import { allView, balancingView, boardView, cellsView, chargingView, overview, pill, settingsView, tempsView } from "./views.js";
+import { allView, balancingView, boardView, cellsView, chargingView, overview, pill, scheduleView, settingsView, tempsView } from "./views.js";
+import { hasDraft } from "./schedule.js";
+import { hasDirty } from "./forms.js";
+import { pending as dragPending } from "./drag.js";
+import { icon } from "./viz.js";
 import { initWizard, openWizard, wizardOpen, wizardSeen } from "./wizard.js";
 import { bulkAction, cancelTimer, installAddon, openChargeSheet, openLaterSheet, restoreBackup, runtime, saveStorageCfg, sendRuntime, setStorage, toggleBalance, toggleCharge } from "./writes.js";
-import "./drag.js";
 
+// id, label, needs board detail, renderer, icon
 const TABS = [
-  ["overview", "Overview", null, overview],
-  ["cells", "Cells", true, cellsView],
-  ["temps", "Temps", true, tempsView],
-  ["charging", "Charging", true, chargingView],
-  ["balancing", "Balancing", true, balancingView],
-  ["history", "History", true, historyView],
-  ["settings", "Settings", true, settingsView],
-  ["board", "Board", true, boardView],
+  ["overview", "Overview", null, overview, "gauge"],
+  ["cells", "Cells", true, cellsView, "cells"],
+  ["temps", "Temps", true, tempsView, "therm"],
+  ["charging", "Charging", true, chargingView, "bolt"],
+  ["schedule", "Schedule", null, scheduleView, "calendar"],
+  ["balancing", "Balancing", true, balancingView, "scale"],
+  ["history", "History", true, historyView, "chart"],
+  ["settings", "Settings", true, settingsView, "sliders"],
+  ["board", "Board", true, boardView, "chip"],
 ];
+
+// Unsaved edits per tab (a dot on the tab, and a warning before leaving the page).
+function unsaved(host, tab) {
+  if (tab === "schedule") return hasDraft(host);
+  if (tab === "charging" || tab === "balancing") return hasDirty(host, [tab]);
+  if (tab === "settings") return hasDirty(host, ["sleep_soc", "protection", "comms"]);
+  if (tab === "cells" || tab === "overview") return Object.keys(dragPending(host)).length > 0;
+  return false;
+}
 const ALL = "*";
 const alertState = new Map();
 const chargeSeen = new Map(); // host -> id of the newest closed charge session we've seen
@@ -87,8 +101,24 @@ hooks.rerender = () => render();
 // ---------------------------------------------------------------- rendering
 
 function setHtml(el, html) {
-  if (el._html !== html) { el._html = html; el.innerHTML = html; }
+  if (el._html !== html) { el._html = html; el.innerHTML = html; return true; }
+  return false;
 }
+
+// Tabs that don't fit scroll sideways: keep the open one in view and fade the edge that has more.
+function tabsChanged() {
+  const t = $("#tabs"), on = t.querySelector(".tab.on");
+  if (on && (on.offsetLeft < t.scrollLeft || on.offsetLeft + on.offsetWidth > t.scrollLeft + t.clientWidth))
+    t.scrollLeft = on.offsetLeft - (t.clientWidth - on.offsetWidth) / 2;
+  tabsFade();
+}
+function tabsFade() {
+  const t = $("#tabs");
+  t.classList.toggle("fade-l", t.scrollLeft > 2);
+  t.classList.toggle("fade-r", t.scrollLeft + t.clientWidth < t.scrollWidth - 2);
+}
+$("#tabs").addEventListener("scroll", tabsFade, { passive: true });
+window.addEventListener("resize", () => { if (!$("#tabs").hidden) tabsChanged(); });
 
 function notify(b) {
   const list = boardAlerts(b);
@@ -159,7 +189,6 @@ function render() {
   $("#discovered").hidden = !disc.length && !bfound.length;
   setHtml($("#discovered"), (disc.length ? "<b>Found on your network:</b> " + found : "") +
     (bfound.length ? `${disc.length ? "<br>" : ""}<b>Found over Bluetooth:</b> ` + bfoundHtml : ""));
-  $("#discoveryError").hidden = true;
   // Battery-drain warning: shown while a board is connected, until this viewer dismisses it.
   const awake = s.boards.some((b) => b.state === "online") && !store("vbms_awake_ok");
   $("#awakeNotice").hidden = !awake;
@@ -178,7 +207,7 @@ function render() {
   if (!cur) { view.innerHTML = ""; view.dataset.view = ""; return; }
   if (cur === ALL) { allView(view, s.boards); return; }
 
-  setHtml($("#tabs"), TABS.map(([id, label]) => `<button type="button" role="tab" class="tab${S.route.tab === id ? " on" : ""}" data-tab="${id}" aria-selected="${S.route.tab === id}">${label}</button>`).join(""));
+  if (setHtml($("#tabs"), TABS.map(([id, label, , , ico]) => `<button type="button" role="tab" class="tab${S.route.tab === id ? " on" : ""}" data-tab="${id}" aria-selected="${S.route.tab === id}" aria-label="${label}" title="${label}">${icon(ico)}<span class="tlab">${label}</span>${unsaved(cur.host, id) ? '<i class="tdot" title="Unsaved changes"></i>' : ""}</button>`).join(""))) tabsChanged();
   const tab = TABS.find((t) => t[0] === S.route.tab);
   tab[3](view, cur, S.detail.get(cur.host));
 
@@ -269,7 +298,12 @@ document.addEventListener("click", (e) => {
   if (t.closest("[data-blescan]")) { api("/api/ble/scan", {}).then(() => setTimeout(refresh, 300)).catch((x) => showMsg("Couldn't search Bluetooth", esc(x.message))); return; }
   if (t.closest("[data-scan]")) { api("/api/scan", {}).then(() => setTimeout(refresh, 300)).catch((x) => showMsg("Couldn't search", esc(x.message))); return; }
   const add = t.closest("[data-add]");
-  if (add) { api("/api/hosts/add", { host: add.dataset.add }).then(refresh).catch((x) => showMsg("Couldn't add", esc(x.message))); return; }
+  if (add) { const h = add.dataset.add; api("/api/hosts/add", { host: h }).then(refresh).then(() => go(h, "overview")).catch((x) => showMsg("Couldn't add", esc(x.message))); return; }
+  if (t.closest("[data-addip]")) { openAdd(); return; }
+  const gd = t.closest("[data-guide]");
+  if (gd) { openGuide(Number(gd.dataset.guide) || 0); return; }
+  const cl = t.closest("[data-close]");
+  if (cl) { const d = cl.closest("dialog"); if (d) d.close("cancel"); return; }
   const btn = t.closest("[data-act]");
   if (btn && btn.tagName !== "INPUT") { e.preventDefault(); return act(btn); }
   const gt = t.closest("[data-goto]");
@@ -298,7 +332,19 @@ window.addEventListener("scroll", () => { if (tip) tip.hidden = true; }, { passi
 
 // ---------------------------------------------------------------- header dialogs
 
-$("#btnAdd").onclick = () => { $("#addDlg").showModal(); $("#addHost").focus(); render(); };
+function openAdd() { if (!canWrite()) return toast("View-only on this device. Pair it to add boards."); $("#addDlg").showModal(); $("#addHost").focus(); render(); }
+$("#btnAdd").onclick = openAdd;
+
+// Phone header: Guide, Log, Alerts, Devices, Preferences and API docs live in one menu.
+function menu(open) {
+  $("#hmenu").classList.toggle("open", open);
+  $("#btnMenu").setAttribute("aria-expanded", String(open));
+}
+$("#btnMenu").onclick = (e) => { e.stopPropagation(); menu(!$("#hmenu").classList.contains("open")); };
+$("#hmenu").addEventListener("click", () => menu(false));
+document.addEventListener("click", (e) => { if (!e.target.closest("#hmenu, #btnMenu")) menu(false); }, true);
+document.addEventListener("keydown", (e) => { if (e.key === "Escape") menu(false); });
+hooks.openLog = (name = "changes") => { if (!$("#logDlg").open) $("#logDlg").showModal(); showLog(name); };
 $("#addCancel").onclick = () => { $("#addHost").value = ""; $("#addDlg").close(); };
 $("#addForm").addEventListener("submit", async (e) => {
   e.preventDefault();
@@ -307,7 +353,6 @@ $("#addForm").addEventListener("submit", async (e) => {
   try { await api("/api/hosts/add", { host: h }); $("#addHost").value = ""; $("#addDlg").close(); await refresh(); go(h, "overview"); } catch (x) { showMsg("Couldn't add", esc(x.message)); }
 });
 $("#btnGuide").onclick = () => openGuide();
-$$("[data-guide]").forEach((b) => (b.onclick = () => openGuide(Number(b.dataset.guide) || 0)));
 $("#btnDevices").onclick = () => { drawDevices(); $("#devDlg").showModal(); };
 $("#viewerPair").onclick = () => { drawDevices(); $("#devDlg").showModal(); };
 $("#btnLogs").onclick = () => { $("#logDlg").showModal(); showLog("changes"); };
@@ -373,8 +418,8 @@ function drawPrefMore() {
     <div class="row"><button type="button" class="small" id="sfSave"${canWrite() ? "" : " disabled"}>Save safety settings</button></div>
     <p class="muted small">Notices show on the dashboard and in the board's banner, and as desktop notifications if those are on (Alerts). A disconnected board stays connected again as soon as a check-in finds the charger plugged in; Reconnect on its Board tab ends the rest straight away.</p>
 
-    <h3>API</h3>
-    <div class="prefrow"><div><b>Allow API requests</b><p class="muted small">Lets scripts and other computers read boards and change them over HTTP (<span class="mono">/api/v1</span>, with an API key). <b>API writes don't ask for confirmation</b>: this switch is the approval for all of them. They still get every hard limit, backup, read-back and log entry.</p></div>
+    <h3>API <a class="more" href="/docs/api" target="_blank" rel="noopener">API docs ›</a></h3>
+    <div class="prefrow"><div><b>Allow API requests</b><p class="muted small">Lets scripts and other computers read boards and change them over HTTP (<span class="mono">/api/v1</span>, with an API key). Endpoints, scopes and examples are in the <a href="/docs/api" target="_blank" rel="noopener">API docs</a>. <b>API writes don't ask for confirmation</b>: this switch is the approval for all of them. They still get every hard limit, backup, read-back and log entry.</p></div>
       <label class="switch"><input type="checkbox" id="prefApi"${apiOn ? " checked" : ""}${local ? "" : " disabled"}><span></span></label></div>
     ${apiOn ? `<p class="small"><span class="bad-t">API requests are on</span> since ${esc(stamp12(st.api.since))}.</p>` : ""}
     <div id="apiOnBox" hidden><div class="risk danger small"><b>⛔ Before you turn this on.</b> Anyone with a key can change charge limits, pause charging, turn balancing off, put boards in storage mode and (with the settings scope) edit BMS settings, from anywhere your server can be reached, with no confirmation. Keep keys secret, give each one only the scopes it needs, and revoke keys you no longer use. Restoring backups and installing add-ons are never possible over the API.</div>
@@ -382,7 +427,8 @@ function drawPrefMore() {
       <div class="row"><button type="button" class="danger" id="apiOnBtn" disabled>Turn on API requests</button></div></div>
     ${apiOn ? `<p class="muted small">Requests are plain HTTP, so the key travels unencrypted: someone on the same network as the caller (public WiFi, for example) could copy it. Give each key only the scopes it needs, and revoke one if you think it leaked.${s.access.internet_seen ? ` Clients from outside your network last reached this server ${esc(stamp12(s.access.internet_seen))}.` : ""}</p>` : ""}
     <table class="keys small"><tr><th>Key</th><th>Scopes</th><th>Made</th><th>Last used</th><th></th></tr>${keyRows || '<tr><td colspan="5" class="muted">No keys yet.</td></tr>'}</table>
-    ${newKey ? `<div class="banner small"><b>New key "${esc(newKey.label)}": copy it now, it isn't shown again.</b><br><input class="mono keyshow" readonly value="${esc(newKey.key)}"></div>` : ""}
+    ${newKey ? `<div class="banner small"><b>New key "${esc(newKey.label)}": copy it now, it isn't shown again.</b><br><input class="mono keyshow" readonly value="${esc(newKey.key)}">
+      <div class="row" style="margin-top:6px"><button type="button" class="small" id="keyCopy">Copy key</button><span class="muted">Send it as <span class="mono">Authorization: Bearer &lt;key&gt;</span>. <a href="/docs/api#keys-and-scopes" target="_blank" rel="noopener">How to use it ›</a></span></div></div>` : ""}
     ${local ? `<div class="keynew small"><input id="keyLabel" placeholder="Key name (e.g. home-assistant)" maxlength="40">
       <label class="check"><input type="checkbox" data-scope="read" checked> read</label>
       <label class="check"><input type="checkbox" data-scope="control"> control <span class="muted">(limits, charging, balancing, storage, schedules)</span></label>
@@ -426,6 +472,10 @@ $("#prefMore").addEventListener("click", async (e) => {
       newKey = { key: r.key, label: r.record.label };
       await refresh(); openPrefs();
       setTimeout(() => { const k = $(".keyshow"); if (k) k.select(); }, 50);
+    }
+    if (t.id === "keyCopy") {
+      const k = $(".keyshow");
+      try { await navigator.clipboard.writeText(k.value); toast("Key copied."); } catch { k.select(); document.execCommand("copy"); toast("Key copied."); }
     }
     if (t.dataset.keyrevoke) {
       if (!window.confirm("Revoke this key? Anything using it stops working straight away.")) return;
@@ -541,6 +591,11 @@ initWizard();
 initGuide();
 initDevices();
 readRoute();
+// Unsaved schedule, settings or graph edits only live in this page: ask before it's closed or reloaded.
+window.addEventListener("beforeunload", (e) => {
+  const hosts = S.state ? S.state.boards.map((b) => b.host) : [];
+  if (hasDraft() || hosts.some((h) => hasDirty(h) || Object.keys(dragPending(h)).length)) { e.preventDefault(); e.returnValue = ""; }
+});
 window.addEventListener("hashchange", () => { readRoute(); render(); loadDetailIfNeeded(true); window.scrollTo({ top: 0 }); });
 refresh().then(() => { migrateAlerts(); loadDetailIfNeeded(true); });
 setInterval(() => { refresh().then(() => loadDetailIfNeeded()); }, 1000);

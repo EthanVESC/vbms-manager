@@ -1,8 +1,8 @@
-// Schedule: palette of blocks/events you drag onto a 7-day timeline, the item list,
-// the item editor and the approval dialog. The server (schedule.py) decides what
+// Schedule tab: what the schedule is doing now, a palette of blocks/events you drag onto a 7-day
+// timeline (an agenda list on phones), the item list, the item editor and the approval dialog. The server (schedule.py) decides what
 // actually happens; the timeline just draws the items where they are.
 
-import { $, api, boardName, canWrite, clamp, dis, endFor, esc, f1, f3, fail, hm12, hooks, placeTip, S, skipConfirm, toast, whenAt } from "./core.js";
+import { $, api, ask, boardName, canWrite, clamp, dis, endFor, esc, f1, f3, fail, hm12, hooks, placeTip, S, skipConfirm, toast, whenAt } from "./core.js";
 import { approve, currentPct, readTime, timeSelects, timerList } from "./writes.js";
 
 const DAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
@@ -36,6 +36,8 @@ function upgrade(s) {
   return s;
 }
 const current = (b) => drafts.get(b.host) || upgrade(b.schedule) || empty();
+// Unsaved schedule edits (for the tab dot and the "leave page?" check).
+export const hasDraft = (host) => (host == null ? drafts.size > 0 : drafts.has(host));
 
 function describeWhen(r) {
   if (r.repeat === "once") return new Date(r.date + "T00:00").toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" });
@@ -71,9 +73,10 @@ function statusLines(ss) {
 export function scheduleSummary(b) {
   const ss = b.schedule_status;
   const timers = timerList(b);
-  if (!ss || (!ss.configured && !(ss.timers || []).length)) return `<p class="muted small sched-sum">No charge schedule. <button type="button" class="linklike" data-goto="charging">Set one up ›</button></p>`;
-  if (ss.configured && !ss.enabled && !timers) return `<p class="muted small sched-sum">Schedule is off${ss.stale ? " (the cell profile changed; review it)" : ""}. <button type="button" class="linklike" data-goto="charging">Schedule ›</button></p>`;
-  return `<div class="small sched-sum">${ss.enabled ? `<span class="chip info">Schedule on</span>` : ""}${statusLines(ss)}${timers}<button type="button" class="linklike" data-goto="charging">Schedule ›</button></div>`;
+  const draft = drafts.has(b.host) ? ` <span class="chip warn">Edited, not saved</span>` : "";
+  if (!ss || (!ss.configured && !(ss.timers || []).length)) return `<p class="muted small sched-sum">No charge schedule.${draft} <button type="button" class="linklike" data-goto="schedule">Set one up ›</button></p>`;
+  if (ss.configured && !ss.enabled && !timers) return `<p class="muted small sched-sum">Schedule is off${ss.stale ? " (the cell profile changed; review it)" : ""}.${draft} <button type="button" class="linklike" data-goto="schedule">Schedule ›</button></p>`;
+  return `<div class="small sched-sum">${ss.enabled ? `<span class="chip info">Schedule on</span>` : ""}${draft}${ss.next_t ? ` <span class="muted">next change ${esc(whenAt(ss.next_t))}</span>` : ""}${statusLines(ss)}${timers}<button type="button" class="linklike" data-goto="schedule">Schedule ›</button></div>`;
 }
 
 // ---------------------------------------------------------------- timeline
@@ -94,6 +97,7 @@ function timeline(b, sched) {
   const today = midnight(new Date()), items = sched.items || [];
   const now = new Date(), nm = now.getHours() * 60 + now.getMinutes();
   const timers = (b.schedule_status && b.schedule_status.timers) || [];
+  const laneLabs = `<div class="tl-lanes">${LANES.map(([k, l]) => `<span class="lane-${k}">${l}</span>`).join("")}</div>`;
   const axis = [0, 3, 6, 9, 12, 15, 18, 21, 24].map((h) => `<span style="left:${pctX(h * 60)}%"${h % 6 ? ' class="minor"' : ""}>${h % 6 ? "" : h === 0 || h === 24 ? "12 AM" : h === 12 ? "12 PM" : (h % 12) + (h < 12 ? " AM" : " PM")}</span>`).join("");
   let rows = "";
   for (let i = 0; i < 7; i++) {
@@ -110,7 +114,7 @@ function timeline(b, sched) {
           } else {
             const w = pctX(sg.b - sg.a);
             html += `<div class="tl-b ${cls}" style="left:${pctX(sg.a)}%;width:${w}%" data-item="${idx}" data-a="${sg.a}" data-b="${sg.b}" data-tip="${esc(tip)}" tabindex="0" role="button" aria-label="${esc(tip)}">
-              ${sg.first && canWrite() ? `<i class="tl-h l" data-edge="start"></i>` : ""}<span>${w > 7 ? esc(r.action === "limit" ? r.pct + "%" : ACTIONS[r.action].block) : ""}</span>${sg.last && canWrite() ? `<i class="tl-h r" data-edge="end"></i>` : ""}</div>`;
+              ${sg.first && canWrite() ? `<i class="tl-h l" data-edge="start"></i>` : ""}<span>${w > 5 ? esc(r.action === "limit" ? r.pct + "%" : ACTIONS[r.action].block) : ""}</span>${sg.last && canWrite() ? `<i class="tl-h r" data-edge="end"></i>` : ""}</div>`;
           }
         }
       });
@@ -122,15 +126,38 @@ function timeline(b, sched) {
       return `<div class="tl-lane lane-${lane}" data-lane="${lane}">${html}</div>`;
     }).join("");
     rows += `<div class="tl-row" data-day="${iso(day)}" data-wd="${wd(day)}"><div class="tl-lab${i === 0 ? " today" : ""}">${i === 0 ? "Today" : DAYS[wd(day)] + " " + day.getDate()}</div>
-      <div class="tl-track">${lanes}${i === 0 ? `<i class="tl-now" style="left:${pctX(nm)}%"></i>` : ""}</div></div>`;
+      ${laneLabs}<div class="tl-track">${lanes}${i === 0 ? `<i class="tl-now" style="left:${pctX(nm)}%"></i>` : ""}</div></div>`;
   }
-  return `<div class="tl" data-tl><div class="tl-row tl-axisrow"><div class="tl-lab"></div><div class="tl-axis">${axis}</div></div>${rows}
-    <div class="tl-legend">${LANES.map(([k, l]) => `<span><i class="lane-dot lane-${k}"></i>${l}</span>`).join("")}<span><i class="sw act-charge_off"></i>off</span><span class="muted">◆ single event · ⏱ timer</span></div></div>`;
+  return `<div class="tl" data-tl><div class="tl-row tl-axisrow"><div class="tl-lab"></div><div></div><div class="tl-axis">${axis}</div></div>${rows}
+    <div class="tl-legend"><span><i class="sw act-limit"></i>limit</span><span><i class="sw act-charge_on"></i>charging allowed</span><span><i class="sw act-charge_off"></i>no charging</span><span><i class="sw act-balance_on"></i>balancing allowed</span><span><i class="sw act-balance_off"></i>no balancing</span><span class="muted">◆ single event · ⏱ timer · ▏now</span></div></div>`;
+}
+
+// Phones: the same week as a list, day by day.
+function agenda(b, sched) {
+  const today = midnight(new Date()), items = sched.items || [];
+  const timers = (b.schedule_status && b.schedule_status.timers) || [];
+  let out = "";
+  for (let i = 0; i < 7; i++) {
+    const day = addDays(today, i), rows = [];
+    items.forEach((r, idx) => { for (const sg of segments(r, day)) if (sg.first) rows.push({ m: sg.a, r, idx }); });
+    for (const t of timers) {
+      const d = new Date(t.at * 1000);
+      if (midnight(d).getTime() === day.getTime()) rows.push({ m: d.getHours() * 60 + d.getMinutes(), t });
+    }
+    rows.sort((x, y) => x.m - y.m);
+    const lab = i === 0 ? "Today" : i === 1 ? "Tomorrow" : day.toLocaleDateString(undefined, { weekday: "long", month: "short", day: "numeric" });
+    out += `<div class="ag-day"><div class="ag-lab">${esc(lab)}</div>${rows.map((x) => x.t
+      ? `<div class="ag-row"><span class="ag-t">${esc(hm12(hhmm(x.m)))}</span><span class="ag-ico" aria-hidden="true">⏱</span><span class="ag-what"><b>Timer</b><small>${esc(x.t.label)}</small></span></div>`
+      : `<button type="button" class="ag-row${x.r.enabled === false ? " off" : ""}" data-item="${x.idx}"${dis()}><span class="ag-t">${esc(x.r.kind === "event" ? hm12(x.r.start) : describeTime(x.r))}</span>
+          <i class="sw act-${x.r.action}${x.r.kind === "event" ? " ev" : ""}" aria-hidden="true"></i><span class="ag-what"><b>${esc(describeWhat(x.r))}</b>${x.r.name !== describeWhat(x.r) ? `<small>${esc(x.r.name)}</small>` : ""}${x.r.enabled === false ? `<small>turned off</small>` : ""}</span><span class="chev" aria-hidden="true">›</span></button>`).join("")
+      || `<div class="ag-none">Nothing scheduled</div>`}</div>`;
+  }
+  return out;
 }
 
 function palette() {
   const chip = (a, kind) => `<button type="button" class="pal act-${a} ${kind}" data-pal="${a}" data-kind="${kind}"${dis()}>${kind === "event" ? "◆ " : ""}${ACTIONS[a][kind === "event" ? "event" : "block"]}</button>`;
-  return `<div class="palette"><div><span class="small muted">Drag a block onto a day:</span>${Object.keys(ACTIONS).map((a) => chip(a, "window")).join("")}</div>
+  return `<div class="palette"><div><span class="small muted"><span class="hide-sm">Drag a block onto a day, or tap one to add it:</span><span class="show-sm">Tap to add a block:</span></span>${Object.keys(ACTIONS).map((a) => chip(a, "window")).join("")}</div>
     <div><span class="small muted">Or a single event (no end time):</span>${Object.keys(ACTIONS).filter((a) => a !== "balance_on").map((a) => chip(a, "event")).join("")}${chip("balance_on", "event")}</div></div>`;
 }
 
@@ -139,35 +166,46 @@ function palette() {
 export function renderSchedule(box, b) {
   if (!box || box._dragging) return;
   const sched = current(b), dirty = drafts.has(b.host), ss = b.schedule_status;
-  const key = JSON.stringify([sched, dirty, ss, canWrite(), b.cell && b.cell.curve, currentPct(b), new Date().getHours(), new Date().getMinutes() >> 2]);
+  const now = new Date();
+  const key = JSON.stringify([sched, dirty, ss, canWrite(), skipConfirm(), b.cell && b.cell.curve, currentPct(b), now.getHours(), now.getMinutes()]);
   if (box._key === key) return;
   box._key = key;
   const on = b.schedule && b.schedule.enabled;
-  const st = !b.schedule ? `<span class="chip">Not set up</span>` : on ? `<span class="chip ok">On</span>` : `<span class="chip warn">Off</span>`;
+  const st = dirty ? `<span class="chip warn">Edited, not saved</span>` : !b.schedule ? `<span class="chip">Not set up</span>` : on ? `<span class="chip ok">Schedule on</span>` : `<span class="chip warn">Schedule off</span>`;
   const items = sched.items || [];
+  const lines = statusLines(ss);
+  const ell = skipConfirm() ? "" : "…";
   box.innerHTML = `
-    <div class="sched-head">${st}${ss && ss.next_t ? `<span class="small muted">next change ${esc(whenAt(ss.next_t))}</span>` : ""}</div>
-    <div class="small sched-now">${statusLines(ss)}</div>
-    ${timerList(b)}
-    ${ss && ss.stale ? `<div class="banner">The cell type or SOC curve changed, so the schedule was turned off. Review it and save to turn it back on.</div>` : ""}
-    ${ss && ss.error ? `<div class="banner bad">${esc(ss.error)}</div>` : ""}
-    ${ss && ss.last ? `<p class="muted small">Last action: ${esc(ss.last)}</p>` : ""}
-    ${palette()}
-    ${timeline(b, sched)}
-    <div class="rules">${items.map((r, i) => `<div class="rule${r.enabled === false ? " off" : ""}">
+    <section class="panel"><h3>Right now</h3>
+      <div class="sched-head">${st}${ss && ss.next_t ? `<span class="small">Next change <b>${esc(whenAt(ss.next_t))}</b></span>` : ""}</div>
+      <div class="small sched-now">${lines || `<span class="muted">The schedule isn't changing anything on this board right now.</span>`}</div>
+      ${ss && ss.stale ? `<div class="banner">The cell type or SOC curve changed, so the schedule was turned off. Review it and save to turn it back on.</div>` : ""}
+      ${ss && ss.error ? `<div class="banner bad">${esc(ss.error)}</div>` : ""}
+      ${ss && ss.last ? `<p class="muted small">Last action: ${esc(ss.last)}</p>` : ""}
+      <h3 class="sub">Timers</h3>
+      ${timerList(b) || `<p class="muted small">No timers. A timer does one thing at a time you pick, then the schedule takes over again.</p>`}
+      <div class="row"><button type="button" class="ghost small" data-act="later" data-host="${esc(b.host)}"${dis()}>⏱ Add a timer…</button></div>
+    </section>
+    <section class="panel"><h3>This week</h3>
+      ${palette()}
+      <div class="tl-wrap">${timeline(b, sched)}</div>
+      <div class="agenda">${agenda(b, sched)}</div>
+    </section>
+    <section class="panel"><h3>Schedule items${items.length ? ` (${items.length})` : ""}</h3>
+      <div class="rules">${items.map((r, i) => `<div class="rule${r.enabled === false ? " off" : ""}">
         <i class="sw act-${r.action}${r.kind === "event" ? " ev" : ""}"></i>
         <div class="rule-txt"><b>${esc(r.name)}</b><span>${esc(describeWhen(r))} · ${esc(describeTime(r))}${r.name === describeWhat(r) ? "" : " · " + esc(describeWhat(r))}${r.action === "limit" && b.cell ? ` <span class="muted">(end ${f3(endFor(r.pct, b.cell))} V)</span>` : ""}</span></div>
         <div class="rule-btns">
-          <label class="switch sm" title="Enabled"><input type="checkbox" data-sched="toggle" data-i="${i}" ${r.enabled === false ? "" : "checked"}${dis()}><span></span></label>
+          <label class="switch sm" title="Enabled"><input type="checkbox" data-sched="toggle" data-i="${i}" aria-label="Item on" ${r.enabled === false ? "" : "checked"}${dis()}><span></span></label>
           <button type="button" class="icon ghost" data-sched="edit" data-i="${i}" aria-label="Edit"${dis()}>✎</button>
           <button type="button" class="icon ghost" data-sched="del" data-i="${i}" aria-label="Delete"${dis()}>✕</button>
-        </div></div>`).join("") || `<p class="muted small">Nothing scheduled yet. Drag "No charging" onto tonight, or tap a chip to set one up.</p>`}</div>
-    <div class="row">
-      ${dirty ? `<button type="button" data-sched="save"${dis()}>Save schedule${skipConfirm() ? "" : "…"}</button><button type="button" class="ghost" data-sched="discard">Discard changes</button>` :
-        on ? `<button type="button" class="ghost" data-sched="off"${dis()}>Turn schedule off</button>` :
-        b.schedule ? `<button type="button" data-sched="on"${dis()}>Turn schedule on${skipConfirm() ? "" : "…"}</button>` : ""}
-    </div>
-    <p class="muted small">Each lane works on its own. When blocks overlap, the one that started last wins, and when it ends the one still running takes over. Single events and timers hold until the next change. At the end of a block the board goes back to what it had before, unless a limit block is set to keep its limit. A limit you set by hand holds until the next change. "No charging" uses the live Pause command. Balancing off writes Balance Max Current = 0 A. <b>Schedules only run while VBMS Manager is running on this computer.</b></p>`;
+        </div></div>`).join("") || `<p class="muted small">Nothing scheduled yet. Tap "No charging" above to keep the pack from charging overnight, for example.</p>`}</div>
+      ${dirty ? "" : `<div class="row">${on ? `<button type="button" class="ghost" data-sched="off"${dis()}>Turn schedule off</button>` : b.schedule ? `<button type="button" data-sched="on"${dis()}>Turn schedule on${ell}</button>` : ""}</div>`}
+    </section>
+    ${dirty ? `<div class="formbar schedbar"><span>Unsaved schedule changes. Nothing changes on the board until you save.</span><button type="button" class="ghost small" data-sched="discard">Discard</button><button type="button" data-sched="save"${dis()}>Save schedule${ell}</button></div>` : ""}
+    <details class="panel howto"><summary>How the schedule works</summary>
+      <p class="small">Each lane (limit, charging, balancing) works on its own. When blocks overlap, the one that started last wins, and when it ends the one still running takes over. Single events and timers hold until the next change. At the end of a block the board goes back to what it had before, unless a limit block is set to keep its limit. A limit you set by hand holds until the next change. "No charging" uses the live Pause command. Balancing off writes Balance Max Current = 0 A.</p>
+      <p class="small"><b>Schedules only run while VBMS Manager is running on this computer.</b></p></details>`;
   box.onclick = (e) => onClick(e, b);
   box.onchange = (e) => onChange(e, b);
   box.onpointerdown = (e) => onPointerDown(e, b, box);
@@ -186,7 +224,7 @@ function onChange(e, b) {
 }
 
 async function onClick(e, b) {
-  if (e.target.closest(".tl-b, .tl-pin")) {
+  if (e.target.closest(".tl-b, .tl-pin, .ag-row[data-item]")) {
     const el = e.target.closest("[data-item]");
     if (el && canWrite() && !el._moved) itemDialog(b, Number(el.dataset.item));
     return;
@@ -197,12 +235,12 @@ async function onClick(e, b) {
   if (!t || t.tagName === "INPUT" || t.tagName === "SELECT") return;
   const i = Number(t.dataset.i), a = t.dataset.sched;
   if (a === "edit") return itemDialog(b, i);
-  if (a === "del") { if (window.confirm("Delete this item? (Nothing changes until you save the schedule.)")) edit(b, (d) => d.items.splice(i, 1)); return; }
+  if (a === "del") { if (ask("Delete this item? (Nothing changes until you save the schedule.)")) edit(b, (d) => d.items.splice(i, 1)); return; }
   if (a === "discard") { drafts.delete(b.host); hooks.rerender(); return; }
   if (a === "save") return save(b, current(b));
   if (a === "on") return save(b, { ...clone(current(b)), enabled: true });
   if (a === "off") {
-    if (!window.confirm("Turn the schedule off? Anything a block changed goes back to what the board had before it (now, or when it reconnects), and a paused charge is allowed again. Timers still run.")) return;
+    if (!ask("Turn the schedule off? Anything a block changed goes back to what the board had before it (now, or when it reconnects), and a paused charge is allowed again. Timers still run.")) return;
     try { await api("/api/schedule/off", { host: b.host, mac: b.mac }); await hooks.refresh(); } catch (x) { fail(x); }
   }
 }
@@ -348,7 +386,7 @@ function itemDialog(b, idx, fresh) {
   const lim = S.state.limits, cp = currentPct(b);
   const radio = (name, v, label, cur) => `<label><input type="radio" name="${name}" value="${v}" ${cur === v ? "checked" : ""}><span>${label}</span></label>`;
   f.innerHTML = `
-    <label class="field">What<select name="action">${Object.keys(ACTIONS).map((a) => `<option value="${a}"${a === r.action ? " selected" : ""}>${ACTIONS[a].block.replace("…", " a limit")}</option>`).join("")}</select></label>
+    <label class="field">What<select name="action">${Object.keys(ACTIONS).map((a) => `<option value="${a}"${a === r.action ? " selected" : ""}>${ACTIONS[a][r.kind === "event" ? "event" : "block"].replace("…", " a limit")}</option>`).join("")}</select></label>
     <div data-show="limit"><div class="stepper"><input type="range" name="pct" min="${lim.pct_min}" max="${lim.pct_max}" step="1" value="${r.pct}"><span class="pct" data-role="pct"></span></div><p class="muted small" data-role="volts"></p></div>
     <div class="seg" role="radiogroup" aria-label="Kind">${radio("kind", "window", "Block (from–until)", r.kind)}${radio("kind", "event", "Single event (no end time)", r.kind)}</div>
     <div class="seg" role="radiogroup" aria-label="Repeat">${radio("repeat", "weekly", "Repeats weekly", r.repeat)}${radio("repeat", "once", "One time", r.repeat)}</div>
@@ -371,6 +409,7 @@ function itemDialog(b, idx, fresh) {
       el.hidden = s === "revert" ? !(action === "limit" && kind === "window") : s === "window" ? kind !== "window" : s === "limit" ? action !== "limit" : s !== rep;
     });
     f.querySelector("[data-role=fromlab]").textContent = kind === "event" ? "At" : "From";
+    [...form.elements.action.options].forEach((o) => (o.textContent = ACTIONS[o.value][kind === "event" ? "event" : "block"].replace("…", " a limit")));
     ["start_h", "start_m", "start_p", "end_h", "end_m", "end_p"].forEach((n) => (form.elements[n].disabled = kind === "window" && all));
     const p = Number(fd.get("pct"));
     f.querySelector("[data-role=pct]").textContent = p + "%";
@@ -386,7 +425,7 @@ function itemDialog(b, idx, fresh) {
   f.onchange = sync;
   f.onclick = (e) => {
     if (e.target.closest("[data-role=delete]")) {
-      if (window.confirm("Delete this item? (Nothing changes until you save the schedule.)")) { dlg.close(); edit(b, (d) => d.items.splice(idx, 1)); }
+      if (ask("Delete this item? (Nothing changes until you save the schedule.)")) { dlg.close(); edit(b, (d) => d.items.splice(idx, 1)); }
       return;
     }
     const t = e.target.closest("[data-days]");
@@ -407,6 +446,11 @@ function itemDialog(b, idx, fresh) {
     out.name = String(fd.get("name") || "").trim() || describeWhat(out);
     const err = out.repeat === "weekly" && !out.days.length ? "Pick at least one day." : out.repeat === "once" && !out.date ? "Pick a date." : kind === "window" && out.start === out.end ? "Start and end can't be the same." : "";
     if (err) { e.preventDefault(); window.alert(err); return; }
+    if (!isNew) {   // "Done" without changes: no draft, nothing to save
+      const was = sched.items[idx];
+      const norm = (k, v) => JSON.stringify(k === "days" ? [...(v || [])].sort() : v);
+      if (Object.keys(out).every((k) => k === "id" || norm(k, out[k]) === norm(k, was[k]))) return;
+    }
     edit(b, (d) => { d.items = d.items || []; if (isNew) d.items.push(out); else d.items[idx] = out; });
   };
   dlg.showModal();

@@ -18,13 +18,17 @@
   </div>
   <nav class="pills" id="pills" aria-label="Boards"></nav>
   <div class="topright">
-    <button type="button" class="ghost" id="btnAdd" aria-label="Add board">+<span class="hide-sm">&nbsp;Add board</span></button>
-    <button type="button" class="ghost" id="btnGuide"><span class="hide-sm">Setup&nbsp;</span>Guide</button>
-    <button type="button" class="ghost" id="btnLogs">Log</button>
-    <button type="button" class="ghost" id="btnAlerts">Alerts</button>
-    <button type="button" class="ghost" id="btnDevices">Devices</button>
-    <button type="button" class="ghost" id="btnPrefs">Preferences</button>
     <button type="button" class="chip warn" id="skipChip" hidden title="Write confirmations are off · click to change">Confirmations off</button>
+    <button type="button" class="ghost" id="btnAdd" aria-label="Add board">+<span class="hide-sm">&nbsp;Add board</span></button>
+    <div class="hmenu" id="hmenu">
+      <button type="button" class="ghost" id="btnGuide">Setup guide</button>
+      <button type="button" class="ghost" id="btnLogs">Log</button>
+      <button type="button" class="ghost" id="btnAlerts">Alerts</button>
+      <button type="button" class="ghost" id="btnDevices">Devices</button>
+      <button type="button" class="ghost" id="btnPrefs">Preferences</button>
+      <a class="btn ghost" id="btnApiDocs" href="/docs/api" target="_blank" rel="noopener">API docs</a>
+    </div>
+    <button type="button" class="ghost menubtn" id="btnMenu" aria-label="Menu" aria-expanded="false" aria-controls="hmenu"><svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg></button>
   </div>
 </header>
 
@@ -32,7 +36,6 @@
 <div id="lost" class="notice bad" hidden></div>
 <div id="awakeNotice" class="notice" hidden></div>
 <div id="discovered" class="discovered" hidden></div>
-<div id="discoveryError" class="notice" hidden></div>
 
 <nav class="tabs" id="tabs" role="tablist" aria-label="Board sections" hidden></nav>
 <main id="view" class="view"></main>
@@ -40,7 +43,7 @@
 <div id="empty" class="empty" hidden>
   <h2>No boards yet</h2>
   <p>Get your VBMS on WiFi. VBMS Manager searches your network for boards every couple of minutes, and boards it finds show up above with an <b>Add</b> button. You can also add a board by IP.</p>
-  <p><button type="button" data-guide="0">Open the setup guide</button></p>
+  <p class="row" style="justify-content:center"><button type="button" data-guide="0">Open the setup guide</button><button type="button" class="ghost" data-addip>Add a board by IP</button></p>
   <p class="muted small">Only one app can talk to a board over WiFi at a time. Disconnect VESC Tool from the board first.</p>
   <div class="scanline" id="emptyScan"></div>
 </div>
@@ -57,9 +60,9 @@
 
 <dialog id="sheetDlg" class="sheet">
   <form method="dialog" class="dlg">
-    <div class="dlg-head"><h2 id="sheetTitle">Charge limit</h2><button value="cancel" class="icon ghost" aria-label="Close">✕</button></div>
+    <div class="dlg-head"><h2 id="sheetTitle">Charge limit</h2><button type="button" class="icon ghost" data-close aria-label="Close">✕</button></div>
     <div id="sheetBody"></div>
-    <div class="dlg-actions"><button value="cancel" class="ghost">Cancel</button><button id="sheetOk" value="ok">Set…</button></div>
+    <div class="dlg-actions"><button type="button" class="ghost" data-close>Cancel</button><button id="sheetOk" value="ok">Set…</button></div>
   </form>
 </dialog>
 
@@ -87,16 +90,16 @@
 
 <dialog id="ruleDlg">
   <form method="dialog" class="dlg">
-    <div class="dlg-head"><h2 id="ruleTitle">Schedule item</h2><button value="cancel" class="icon ghost" aria-label="Close">✕</button></div>
+    <div class="dlg-head"><h2 id="ruleTitle">Schedule item</h2><button type="button" class="icon ghost" data-close aria-label="Close">✕</button></div>
     <div id="ruleForm" class="ruleform"></div>
     <p class="muted small">Nothing changes on the board until you save the schedule.</p>
-    <div class="dlg-actions"><button value="cancel" class="ghost">Cancel</button><button value="ok" id="ruleOk">Done</button></div>
+    <div class="dlg-actions"><button type="button" class="ghost" data-close>Cancel</button><button value="ok" id="ruleOk">Done</button></div>
   </form>
 </dialog>
 
 <dialog id="wizDlg" class="wide">
   <form method="dialog" class="dlg">
-    <div class="dlg-head"><h2>Board setup</h2><button value="cancel" class="icon ghost" aria-label="Close">✕</button></div>
+    <div class="dlg-head"><h2>Board setup</h2><button type="button" class="icon ghost" data-close aria-label="Close">✕</button></div>
     <ol class="steps" id="wizSteps"></ol>
     <div id="wizBody" class="wizbody"></div>
     <p class="muted small">Board setup is saved in VBMS Manager. It doesn't write anything to the BMS, except the optional add-on if you install it.</p>
@@ -111,7 +114,7 @@
 
 <dialog id="guideDlg" class="wide">
   <form method="dialog" class="dlg">
-    <div class="dlg-head"><h2>Setup guide: get your VBMS on WiFi</h2><button value="cancel" class="icon ghost" aria-label="Close">✕</button></div>
+    <div class="dlg-head"><h2>Setup guide: get your VBMS on WiFi</h2><button type="button" class="icon ghost" data-close aria-label="Close">✕</button></div>
     <div class="guide"><ol class="guidenav" id="guideNav"></ol><div class="guidebody" id="guideBody"></div></div>
     <div class="dlg-actions"><button type="button" class="ghost" id="guidePrev">Back</button><button type="button" id="guideNext">Next</button></div>
   </form>
@@ -119,7 +122,7 @@
 
 <dialog id="devDlg">
   <form method="dialog" class="dlg">
-    <div class="dlg-head"><h2>Devices</h2><button value="cancel" class="icon ghost" aria-label="Close">✕</button></div>
+    <div class="dlg-head"><h2>Devices</h2><button type="button" class="icon ghost" data-close aria-label="Close">✕</button></div>
     <div id="devBody"></div>
   </form>
 </dialog>
@@ -134,7 +137,7 @@
 
 <dialog id="logDlg" class="wide">
   <form method="dialog" class="dlg">
-    <div class="dlg-head"><h2>Log</h2><button value="cancel" class="icon ghost" aria-label="Close">✕</button></div>
+    <div class="dlg-head"><h2>Log</h2><button type="button" class="icon ghost" data-close aria-label="Close">✕</button></div>
     <div class="seg"><button type="button" data-log="changes" class="on">Changes</button><button type="button" data-log="events">Board events</button><button type="button" data-log="recording">Recording</button></div>
     <div id="logBody" class="logbody"></div>
   </form>
@@ -152,13 +155,13 @@
       <label class="check"><input type="checkbox" id="alDone"> When a charge finishes (reached the limit)</label>
       <label class="check"><input type="checkbox" id="alEarly"> When charging stops early (unplugged, paused, fault, temperature)</label>
       <label class="check"><input type="checkbox" id="alOffline"> When a board goes offline while charging</label></fieldset>
-    <div class="dlg-actions"><button value="cancel" class="ghost">Cancel</button><button type="button" id="alSave">Save</button></div>
+    <div class="dlg-actions"><button type="button" class="ghost" data-close>Cancel</button><button type="button" id="alSave">Save</button></div>
   </form>
 </dialog>
 
 <dialog id="prefDlg">
   <form method="dialog" class="dlg">
-    <div class="dlg-head"><h2>Preferences</h2><button value="cancel" class="icon ghost" aria-label="Close">✕</button></div>
+    <div class="dlg-head"><h2>Preferences</h2><button type="button" class="icon ghost" data-close aria-label="Close">✕</button></div>
     <div class="prefrow"><div><b>Ask before every write</b><p class="muted small">The confirmation dialogs before charge limits, settings, live Pause/Allow and balancing commands, schedules and timers.</p></div>
       <label class="switch"><input type="checkbox" id="prefConfirm"><span></span></label></div>
     <p class="small" id="prefNote"></p>

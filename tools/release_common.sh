@@ -59,7 +59,7 @@ stage_app() {
   mkdir -p "$1"
   cp "$SRC"/*.py "$1/"
   local d
-  for d in vesc cells web lisp; do
+  for d in vesc cells web lisp docs; do
     rsync -a --exclude '__pycache__' --exclude '.*' --exclude '*.pyc' "$SRC/$d" "$1/"
   done
 }

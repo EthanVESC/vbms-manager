@@ -219,12 +219,15 @@ export function toggleOpen(k) {
 }
 
 let toastTimer = 0;
-export function toast(text) {
+// action: optional {label, run} shown as a button in the toast (e.g. "View in log").
+export function toast(text, action) {
   let el = $("#toast");
   if (!el) { el = document.createElement("div"); el.id = "toast"; el.className = "toast"; el.setAttribute("role", "status"); document.body.appendChild(el); }
-  el.textContent = text; el.hidden = false;
+  el.innerHTML = `<span>${esc(text)}</span>${action ? `<button type="button">${esc(action.label)}</button>` : ""}`;
+  if (action) el.querySelector("button").onclick = () => { el.hidden = true; action.run(); };
+  el.hidden = false;
   clearTimeout(toastTimer);
-  toastTimer = setTimeout(() => (el.hidden = true), 4000);
+  toastTimer = setTimeout(() => (el.hidden = true), action ? 7000 : 4000);
 }
 
 export function showMsg(title, html) {
@@ -238,7 +241,7 @@ export function fail(e) {
 }
 
 // main.js fills these in; other modules call them after changing something.
-export const hooks = { refresh: async () => {}, reloadDetail: async () => {}, rerender: () => {} };
+export const hooks = { refresh: async () => {}, reloadDetail: async () => {}, rerender: () => {}, openLog: () => {} };
 
 // Put a tooltip next to rect r (a DOMRect or {left, right, top, bottom}) without covering it:
 // above if it fits, otherwise below, centred and kept on screen.

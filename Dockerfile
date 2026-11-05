@@ -30,6 +30,7 @@ COPY vesc /app/vesc
 COPY cells /app/cells
 COPY web /app/web
 COPY lisp /app/lisp
+COPY docs /app/docs
 
 ENV VBMS_MANAGER_HOME=/data
 VOLUME /data

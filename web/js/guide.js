@@ -22,8 +22,13 @@ const SHOTS = {
     [48.1, 87.7, 15.8, 2.9, "Write"]] },
 };
 
+// Screenshots that exist in web/img/guide. The others are slots for later: they're left out entirely,
+// so the guide doesn't ask the server for files that aren't there. Add a key here with its .png.
+const HAVE = new Set(["04-wifi", "08-block-sleep"]);
+
 function shot(key) {
   const s = SHOTS[key];
+  if (!HAVE.has(key)) return "";
   const alt = s.alt + (s.marks.length ? ": " + s.marks.map((m, i) => `${i + 1}. ${m[4]}`).join(", ") : "");
   return `<figure class="shot" hidden><button type="button" class="shot-img" data-zoom aria-label="Enlarge: ${esc(s.alt)}"><span class="shot-frame"><img src="img/guide/${key}.png" alt="${esc(alt)}">${s.marks.map((m, i) => `<span class="shot-mark${m[5] ? " " + m[5] : ""}" style="left:${m[0]}%;top:${m[1]}%;width:${m[2]}%;height:${m[3]}%"><b>${i + 1}</b></span>`).join("")}</span></button><figcaption>${esc(s.alt)} <span class="muted">· ${VT ? VT + " · " : ""}tap to enlarge</span>${s.marks.length ? `<ol class="shot-steps">${s.marks.map((m) => `<li>${esc(m[4])}</li>`).join("")}</ol>` : ""}</figcaption></figure>`;
 }

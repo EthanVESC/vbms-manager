@@ -51,7 +51,7 @@ It runs on your computer and shows its UI in your browser at `http://127.0.0.1:8
 3. **Board setup** opens by itself the first time the tool sees a new board: the **safety warning** (writes stay locked until you accept it), name, **cell type**, review and accept the **SOC curve**, a check of the **running Lisp script** (see below), and the optional **charger latch** add-on. It only appears once; reopen it with **Board → Edit board setup**. It saves to VBMS Manager only and writes nothing to the BMS, unless you choose to install the add-on.
 4. Tap the **Charge limit** button (Overview or Charging tab), pick a percentage, check the values in the dialog, tick the box, and click **Write to BMS**.
 
-Each board has tabs: **Overview**, **Cells**, **Temps**, **Charging** (limit, schedule, pause/allow, charging settings), **Balancing**, **Settings** (sleep & SOC, protection, WiFi/Bluetooth/CAN) and **Board** (setup, script check, add-ons, logging, export, connection, events, full config).
+Each board has tabs: **Overview**, **Cells**, **Temps**, **Charging** (limit, pause/allow, charging settings), **Schedule** (what's happening now, timers, the week, schedule items), **Balancing**, **History**, **Settings** (sleep & SOC, protection, WiFi/Bluetooth/CAN) and **Board** (setup, script check, add-ons, logging, export, connection, events, full config). On narrow screens (phones, tablets in portrait) the tabs show icons, with the open tab's name, and the header buttons (Setup guide, Log, Alerts, Devices, Preferences, API docs) move into the ☰ menu. A tab with unsaved edits has a dot, and the page asks before you leave with unsaved edits. After a successful write, a short message confirms what the board read back, with **View in log** for the details and the backup's path.
 
 **Only one app can talk to a board at a time.** While VBMS Manager is connected, VESC Tool can't connect to that board over WiFi (and the other way round). Click **Board → Free for VESC Tool**, or quit VBMS Manager, when you want VESC Tool back. A board that is "Busy" usually has VESC Tool connected to it.
 
@@ -123,7 +123,7 @@ Because the BMS checks Charge End under charge current, the resting voltage, and
 
 ## Charge schedules
 
-**Charging → Schedule** has a week view. Drag a block from the palette onto a day and time, then drag it to move it or drag its edges to resize it (5-minute steps). Click it to edit the details: times are picked from 12-hour dropdowns in 5-minute steps.
+The **Schedule** tab starts with what's happening right now (each channel, the next change, pending timers), then the week view. Drag a block from the palette onto a day and time, then drag it to move it or drag its edges to resize it (5-minute steps). Click it to edit the details: times are picked from 12-hour dropdowns in 5-minute steps. On a phone the week is a list by day instead: tap a palette block to add one, tap an entry to edit it. Edits stay a draft (*Edited, not saved*) until you click **Save schedule…** and approve it.
 
 - **Blocks** run from a start to an end time: *Charge to N %*, *No charging*, *Allow charging*, *No balancing*, *Allow balancing*. A block that ends before it starts runs past midnight.
 - **Single events** have no end time: *Set limit 90 % at 5:00 PM*, *Stop/Start charging*, *Stop/Start balancing*. An event holds until the next change.
@@ -137,7 +137,7 @@ The limit, charging and balancing are separate: a *No charging* block and a *Cha
 - **No balancing** writes *Balance Max Current = 0 A* (a config write, so it survives restarts). *Allow balancing* writes back the value the board had before (or 1.0 A if it was already 0).
 - Saving shows the exact writes for each item. You approve them once, and from then on the scheduled writes go through the same checks, backup, read-back and change log as a manual write. Any edit needs a new approval. Changing the board's cell type or curve turns the schedule off until you review it.
 
-**Timers** (*Later…* on the Overview, Charging and Balancing screens) are one-off changes: *start charging and set 90 % in 4 hours*, *stop balancing at 11:00 PM*. A timer beats the schedule when it fires, and the schedule takes over again at its next change. Pending timers are listed with a ✕ to cancel them and appear on the week view. Changing the cell type cancels pending limit timers.
+**Timers** (*Later…* on the Overview, Charging and Balancing screens, or *Add a timer…* on the Schedule tab) are one-off changes: *start charging and set 90 % in 4 hours*, *stop balancing at 11:00 PM*. A timer beats the schedule when it fires, and the schedule takes over again at its next change. Pending timers are listed with a ✕ to cancel them and appear on the week view. Changing the cell type cancels pending limit timers.
 
 The **Charging** and **Balancing** switches show whether each is allowed right now and why (you, a schedule block, a timer). Tapping one always sends the opposite: *Pause/Allow charging* (live), or *Balance Max Current* 0 A / back (a config write). The schedule leaves your change alone until its next change on that channel.
 
@@ -235,7 +235,7 @@ Everything is under `~/.vbms_manager/` (set `VBMS_MANAGER_HOME` to move it): `bo
 
 ## API
 
-Scripts, home automation and CI jobs can read and control boards over HTTP at `/api/v1`, with API keys. It's **off** until you turn on *Allow API requests* in Preferences on the computer running VBMS Manager. That switch approves every API write, so API writes don't ask again. They still get every check, backup, read-back and log entry. Keys have scopes (read / control / settings, plus an extra tick for ⛔ danger settings), and only a hash of each key is kept. Restores and add-on installs aren't available over the API. Full reference and examples: [docs/API.md](docs/API.md).
+Scripts, home automation and CI jobs can read and control boards over HTTP at `/api/v1`, with API keys. It's **off** until you turn on *Allow API requests* in Preferences on the computer running VBMS Manager. That switch approves every API write, so API writes don't ask again. They still get every check, backup, read-back and log entry. Keys have scopes (read / control / settings, plus an extra tick for ⛔ danger settings), and only a hash of each key is kept. Restores and add-on installs aren't available over the API. Full reference and examples: [docs/API.md](docs/API.md), also served by VBMS Manager itself at `/docs/api` (linked from **API docs** in the header and in Preferences). The reference page is open to every client, including ones from outside your networks, and contains no keys.
 
 ```bash
 curl -s -H "Authorization: Bearer $KEY" -X POST http://192.168.1.10:8642/api/v1/all/charge-limit -d '{"pct": 80}'

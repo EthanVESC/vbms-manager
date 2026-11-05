@@ -155,6 +155,14 @@ export const ICON = {
   delta: `<path d="M12 4 3.5 20h17z" class="i-line"/>`,
   therm: `<path d="M14 14.5V5a2 2 0 0 0-4 0v9.5a4 4 0 1 0 4 0z" class="i-line"/><path d="M12 10v7" class="i-line"/>`,
   flame: `<path d="M12 3c3 4 6 6.5 6 10.5a6 6 0 0 1-12 0c0-2.5 1.5-4 3-5.5 0 2 1 3 2 3.5 0-3-.5-5.5 1-8.5z" class="i-line"/>`,
+  // tab icons
+  gauge: `<path d="M4.5 17a8 8 0 1 1 15 0" class="i-line"/><path d="M12 13.5 15.5 9" class="i-line"/><circle cx="12" cy="14" r="1.6" class="i-fill"/>`,
+  cells: `<rect x="3" y="7" width="16" height="10" rx="2" class="i-line"/><path d="M21 10.5v3M7 10v4M11 10v4M15 10v4" class="i-line"/>`,
+  calendar: `<rect x="3.5" y="5" width="17" height="15" rx="2" class="i-line"/><path d="M3.5 10h17M8 3v4M16 3v4M8 14h2M14 14h2M8 17h2" class="i-line"/>`,
+  chart: `<path d="M4 4v16h16" class="i-line"/><path d="M7.5 15l3.5-4 3 2.5L19 8" class="i-line"/>`,
+  sliders: `<path d="M5 6h9M18 6h1M5 12h3M12 12h7M5 18h11M20 18h-1" class="i-line"/><circle cx="16" cy="6" r="2" class="i-line"/><circle cx="10" cy="12" r="2" class="i-line"/><circle cx="18" cy="18" r="2" class="i-line"/>`,
+  chip: `<rect x="6" y="6" width="12" height="12" rx="2" class="i-line"/><path d="M9 3v3M15 3v3M9 18v3M15 18v3M3 9h3M3 15h3M18 9h3M18 15h3" class="i-line"/>`,
+  clock: `<circle cx="12" cy="12" r="8.5" class="i-line"/><path d="M12 7.5V12l3 2" class="i-line"/>`,
 };
 
 export function icon(name) {

@@ -6,7 +6,7 @@ import { drawDevices, initDevices, initGuide, openGuide } from "./guide.js";
 import { forget, historyView, resetHistoryCache } from "./history.js";
 import { allView, balancingView, boardView, cellsView, chargingView, overview, pill, settingsView, tempsView } from "./views.js";
 import { initWizard, openWizard, wizardOpen, wizardSeen } from "./wizard.js";
-import { cancelTimer, installAddon, openChargeSheet, openLaterSheet, restoreBackup, runtime, sendRuntime, toggleBalance, toggleCharge } from "./writes.js";
+import { bulkAction, cancelTimer, installAddon, openChargeSheet, openLaterSheet, restoreBackup, runtime, saveStorageCfg, sendRuntime, setStorage, toggleBalance, toggleCharge } from "./writes.js";
 import "./drag.js";
 
 const TABS = [
@@ -219,6 +219,11 @@ async function act(btn) {
     if (a === "addon") return installAddon(b, btn.dataset.id);
     if (a === "rt") return runtime(b, btn.dataset.cmd, Number(btn.dataset.val), btn.textContent.trim());
     if (a === "wizard") return openWizard(b.host);
+    if (a === "storage-on" || a === "storage-off") return setStorage(b, a === "storage-on");
+    if (a === "storage-save") {
+      const num = (id) => Number($("#" + id).value);
+      return saveStorageCfg(b, { end_v: num("stEnd"), gap: num("stGap"), balance_min: num("stBal"), balance: $("#stBalOn").checked, sleep: $("#stSleep").checked });
+    }
     if (a === "pause" || a === "resume") await api("/api/board/pause", { host: b.host, pause: a === "pause" });
     if (a === "link-ble" || a === "link-wifi") {
       const ble = a === "link-ble";
@@ -259,6 +264,8 @@ document.addEventListener("click", (e) => {
   const tab = t.closest("[data-tab]");
   if (tab) return go(null, tab.dataset.tab);
   if (t.closest("[data-awake-ok]")) { store("vbms_awake_ok", true); render(); return; }
+  const bulk = t.closest("[data-bulk]");
+  if (bulk) { e.preventDefault(); bulkAction(bulk.dataset.bulk); return; }
   if (t.closest("[data-blescan]")) { api("/api/ble/scan", {}).then(() => setTimeout(refresh, 300)).catch((x) => showMsg("Couldn't search Bluetooth", esc(x.message))); return; }
   if (t.closest("[data-scan]")) { api("/api/scan", {}).then(() => setTimeout(refresh, 300)).catch((x) => showMsg("Couldn't search", esc(x.message))); return; }
   const add = t.closest("[data-add]");
@@ -334,8 +341,99 @@ function openPrefs() {
   $("#prefConfirm").disabled = !canWrite() || (!local && !skipConfirm());
   $("#prefNote").innerHTML = skipConfirm() ? `<span class="bad-t">Confirmations are off</span> since ${esc(stamp12(cs.since))}. ⛔ danger changes and restores still ask.`
     : local ? "Recommended: keep this on." : "Only the computer running VBMS Manager can turn confirmations off.";
-  $("#prefDlg").showModal();
+  drawPrefMore();
+  if (!$("#prefDlg").open) $("#prefDlg").showModal();
 }
+
+// Preferences: API, internet access and safety. API keys and the API switch only from this computer.
+const SAFETY_FIELDS = [
+  ["low_soc_on", "Disconnect boards that stay at low SOC, so the BMS can sleep", "check"],
+  ["low_soc_pct", "Low SOC threshold", "%", 5, 50, 1], ["low_soc_hours", "for at least", "h", 0.25, 48, 0.25],
+  ["probe_hours", "Then check back every", "h", 0.5, 48, 0.5],
+  ["nominal_on", "Notice when the pack sits below nominal voltage", "check"],
+  ["nominal_v", "Nominal", "V/cell", 3.0, 3.9, 0.01], ["nominal_days", "for", "days", 0.5, 60, 0.5],
+  ["low_cell_on", "Notice when any cell drops below", "check"], ["low_cell_v", "Low cell", "V", 2.8, 3.6, 0.01],
+  ["full_on", "Notice when a pack sits near full for days (suggests storage mode)", "check"],
+  ["full_pct", "Above", "% SOC", 70, 100, 1], ["full_days", "for", "days", 1, 90, 1],
+];
+let newKey = null;
+function drawPrefMore() {
+  const s = S.state, local = s.access.role === "local", st = s.settings, apiOn = !!(st.api && st.api.on);
+  const keys = s.access.api_keys || [];
+  const sf = st.safety || {};
+  const safety = SAFETY_FIELDS.map(([k, label, unit, lo, hi, step]) => unit === "check"
+    ? `<label class="check"><input type="checkbox" data-sf="${k}"${sf[k] ? " checked" : ""}${canWrite() ? "" : " disabled"}> ${esc(label)}</label>`
+    : `<label class="sfnum">${esc(label)} <input type="number" data-sf="${k}" value="${sf[k]}" min="${lo}" max="${hi}" step="${step}"${canWrite() ? "" : " disabled"}> ${esc(unit)}</label>`).join("");
+  const keyRows = keys.map((k) => `<tr><td><b>${esc(k.label)}</b></td><td>${esc(k.scopes.join(", "))}${k.danger ? ' <span class="chip bad">danger</span>' : ""}</td>
+    <td class="small">${esc(stamp12(k.created))}</td><td class="small">${k.last_used ? esc(stamp12(k.last_used)) + `<br><span class="mono muted">${esc(k.last_ip)}</span>` : '<span class="muted">never</span>'}</td>
+    <td>${local ? `<button type="button" class="small ghost" data-keyrevoke="${esc(k.id)}">Revoke</button>` : ""}</td></tr>`).join("");
+  setHtml($("#prefMore"), `
+    <h3>Safety</h3>
+    <div class="sfgrid small">${safety}</div>
+    <div class="row"><button type="button" class="small" id="sfSave"${canWrite() ? "" : " disabled"}>Save safety settings</button></div>
+    <p class="muted small">Notices show on the dashboard and in the board's banner, and as desktop notifications if those are on (Alerts). A disconnected board stays connected again as soon as a check-in finds the charger plugged in; Reconnect on its Board tab ends the rest straight away.</p>
+
+    <h3>API</h3>
+    <div class="prefrow"><div><b>Allow API requests</b><p class="muted small">Lets scripts and other computers read boards and change them over HTTP (<span class="mono">/api/v1</span>, with an API key). <b>API writes don't ask for confirmation</b>: this switch is the approval for all of them. They still get every hard limit, backup, read-back and log entry.</p></div>
+      <label class="switch"><input type="checkbox" id="prefApi"${apiOn ? " checked" : ""}${local ? "" : " disabled"}><span></span></label></div>
+    ${apiOn ? `<p class="small"><span class="bad-t">API requests are on</span> since ${esc(stamp12(st.api.since))}.</p>` : ""}
+    <div id="apiOnBox" hidden><div class="risk danger small"><b>⛔ Before you turn this on.</b> Anyone with a key can change charge limits, pause charging, turn balancing off, put boards in storage mode and (with the settings scope) edit BMS settings, from anywhere your server can be reached, with no confirmation. Keep keys secret, give each one only the scopes it needs, and revoke keys you no longer use. Restoring backups and installing add-ons are never possible over the API.</div>
+      <label class="field"><span>Type <b>allow api requests</b> to continue</span><input id="apiPhrase" autocomplete="off" spellcheck="false"></label>
+      <div class="row"><button type="button" class="danger" id="apiOnBtn" disabled>Turn on API requests</button></div></div>
+    ${apiOn ? `<p class="muted small">Requests are plain HTTP, so the key travels unencrypted: someone on the same network as the caller (public WiFi, for example) could copy it. Give each key only the scopes it needs, and revoke one if you think it leaked.${s.access.internet_seen ? ` Clients from outside your network last reached this server ${esc(stamp12(s.access.internet_seen))}.` : ""}</p>` : ""}
+    <table class="keys small"><tr><th>Key</th><th>Scopes</th><th>Made</th><th>Last used</th><th></th></tr>${keyRows || '<tr><td colspan="5" class="muted">No keys yet.</td></tr>'}</table>
+    ${newKey ? `<div class="banner small"><b>New key "${esc(newKey.label)}": copy it now, it isn't shown again.</b><br><input class="mono keyshow" readonly value="${esc(newKey.key)}"></div>` : ""}
+    ${local ? `<div class="keynew small"><input id="keyLabel" placeholder="Key name (e.g. home-assistant)" maxlength="40">
+      <label class="check"><input type="checkbox" data-scope="read" checked> read</label>
+      <label class="check"><input type="checkbox" data-scope="control"> control <span class="muted">(limits, charging, balancing, storage, schedules)</span></label>
+      <label class="check"><input type="checkbox" data-scope="settings"> settings <span class="muted">(edit BMS settings)</span></label>
+      <label class="check"><input type="checkbox" id="keyDanger"> also ⛔ danger settings (WiFi, protection, sleep blocking…)</label>
+      <button type="button" class="small" id="keyMake">Make key</button></div>` : `<p class="muted small">API keys are managed from the computer running VBMS Manager.</p>`}
+
+    <h3>Internet</h3>
+    <div class="prefrow"><div><b>Allow the web page from the internet</b><p class="muted small">Off: clients from outside your networks (a forwarded port) only get the API, with a key. On: they're treated like devices on your WiFi: they can watch, and pair with the pairing code to make changes. Keep this off unless you need it.</p></div>
+      <label class="switch"><input type="checkbox" id="prefNet"${st.internet_ui ? " checked" : ""}${local ? "" : " disabled"}><span></span></label></div>`);
+  const ph = $("#apiPhrase");
+  if (ph) ph.oninput = () => ($("#apiOnBtn").disabled = ph.value.trim().toLowerCase() !== "allow api requests");
+}
+$("#prefMore").addEventListener("change", async (e) => {
+  const t = e.target;
+  if (t.id === "prefApi") {
+    const want = t.checked;
+    t.checked = !want;
+    if (!want) { try { await api("/api/prefs", { api: false }); await refresh(); toast("API requests are off."); openPrefs(); } catch (x) { fail(x); } return; }
+    $("#apiOnBox").hidden = false; $("#apiPhrase").focus();
+  }
+  if (t.id === "prefNet") {
+    const want = t.checked;
+    t.checked = !want;
+    if (want && !window.confirm("Let clients from the internet open the web page?\n\nThey can watch every board, and anyone who gets the pairing code can change them.")) return;
+    try { await api("/api/prefs", { internet_ui: want }); await refresh(); openPrefs(); } catch (x) { fail(x); }
+  }
+});
+$("#prefMore").addEventListener("click", async (e) => {
+  const t = e.target;
+  try {
+    if (t.id === "apiOnBtn") { await api("/api/prefs", { api: true, phrase: $("#apiPhrase").value }); await refresh(); toast("API requests are on."); openPrefs(); }
+    if (t.id === "sfSave") {
+      const out = {};
+      $$("#prefMore [data-sf]").forEach((el) => (out[el.dataset.sf] = el.type === "checkbox" ? el.checked : Number(el.value)));
+      await api("/api/prefs", { safety: out }); await refresh(); toast("Safety settings saved."); openPrefs();
+    }
+    if (t.id === "keyMake") {
+      const scopes = $$("#prefMore [data-scope]").filter((x) => x.checked).map((x) => x.dataset.scope);
+      const r = await api("/api/keys/create", { label: $("#keyLabel").value, scopes, danger: $("#keyDanger").checked });
+      newKey = { key: r.key, label: r.record.label };
+      await refresh(); openPrefs();
+      setTimeout(() => { const k = $(".keyshow"); if (k) k.select(); }, 50);
+    }
+    if (t.dataset.keyrevoke) {
+      if (!window.confirm("Revoke this key? Anything using it stops working straight away.")) return;
+      await api("/api/keys/revoke", { id: t.dataset.keyrevoke }); await refresh(); openPrefs();
+    }
+  } catch (x) { fail(x); }
+});
+$("#prefDlg").addEventListener("close", () => { newKey = null; });
 $("#prefConfirm").onchange = async (e) => {
   const want = e.target.checked;
   e.target.checked = !want; // stays as it was until the change is saved
@@ -379,11 +477,15 @@ async function showLog(name) {
         if (r.event === "runtime") return esc(`${r.cmd} = ${r.value}`) + (r.why ? ` <span class="muted">(${esc(r.why)})</span>` : "");
         if (r.event === "schedule") return `Schedule ${r.enabled ? "saved" : "off"}<br><span class="muted">${(r.rules || []).map(esc).join("<br>")}</span>`;
         if (r.event === "timer") return `Timer for ${esc(r.at)}: ${esc(r.what)}${r.confirm === "skipped" ? ' <span class="muted">(no confirmation)</span>' : ""}`;
+        if (r.event === "prefs" && "api" in r) return `API requests turned <b>${r.api ? "on" : "off"}</b>`;
+        if (r.event === "prefs" && "internet_ui" in r) return `Web page from the internet <b>${r.internet_ui ? "allowed" : "blocked"}</b>`;
+        if (r.event === "prefs" && "safety" in r) return "Safety settings saved";
         if (r.event === "prefs") return `Write confirmations turned <b>${r.confirm_skip ? "off" : "on"}</b>`;
+        if (r.event === "api_key") return `API key ${r.action === "create" ? `<b>${esc(r.label)}</b> made (${esc((r.scopes || []).join(", "))}${r.danger ? ", danger" : ""})` : "revoked"}`;
         if (r.rows && r.rows.length) return r.rows.map((x) => `${esc(x.label)}: ${esc(x.old)} → <b>${esc(x.new)}</b>`).join("<br>") + `<br><span class="muted">${esc(r.reason || "")}</span>`;
         return `start ${f3(r.old?.vc_charge_start)} → ${f3(r.new?.vc_charge_start)}<br>end ${f3(r.old?.vc_charge_end)} → ${f3(r.new?.vc_charge_end)}<br><span class="muted">${esc(r.reason || "")}</span>`;
       };
-      body.innerHTML = `<table><tr><th>Time</th><th>Board</th><th>Change</th><th>Result</th></tr>${rows.map((r) => `<tr><td>${esc(stamp12(r.time))}</td><td>${esc(r.name || "")}<br><span class="mono muted">${esc(r.mac)}</span></td><td>${what(r)}</td><td>${esc(r.result || (r.event === "config_write" ? "" : r.event === "runtime" ? "sent" : "saved"))}${r.confirm ? `<br><span class="muted small">${esc(r.confirm)}</span>` : ""}${r.error ? "<br>" + esc(r.error) : ""}</td></tr>`).join("")}</table>`;
+      body.innerHTML = `<table><tr><th>Time</th><th>Board</th><th>Change</th><th>Result</th></tr>${rows.map((r) => `<tr><td>${esc(stamp12(r.time))}</td><td>${esc(r.name || "")}<br><span class="mono muted">${esc(r.mac)}</span></td><td>${what(r)}</td><td>${esc(r.result || (r.event === "config_write" ? "" : r.event === "runtime" ? "sent" : "saved"))}${r.confirm ? `<br><span class="muted small">${esc(r.confirm)}</span>` : ""}${r.via && r.via.kind === "api" ? `<br><span class="muted small">API key "${esc(r.via.key)}" from ${esc(r.via.ip)}</span>` : ""}${r.error ? "<br>" + esc(r.error) : ""}</td></tr>`).join("")}</table>`;
     } else {
       const kinds = [...new Set(rows.map((r) => r.kind))].sort();
       const shown = rows.filter((r) => !evKind || r.kind === evKind).slice(0, 500);

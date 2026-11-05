@@ -52,12 +52,15 @@ import time
 
 import charge_limit
 import safe_write
+import safety
+import storage
 import store
 
 MAX_ITEMS = 40
 MAX_TIMERS = 10
 PROPOSAL_TTL = 300.0
 TICK_S = 2.0
+SAFETY_S = 30.0          # how often safety notices are re-evaluated per board
 PAUSE_RESEND_S = 30.0
 WRITE_RETRY_S = 300.0
 LOOKBACK_DAYS = 8
@@ -448,10 +451,28 @@ class Scheduler:
         while not self._stop.is_set():
             for b in list(self.app.boards.values()):
                 try:
+                    self.housekeeping(b)
                     self.tick(b)
                 except Exception as e:  # never let one board stop the scheduler
                     self._st(b.mac)["error"] = "%s: %s" % (type(e).__name__, e)
             self._stop.wait(TICK_S)
+
+    def housekeeping(self, b, now=None):
+        """Safety notices (every SAFETY_S) and a storage-off that was asked for while the board was away."""
+        if not b.mac:
+            return
+        st = self._st(b.mac)
+        t = time.time() if now is None else now
+        if t - st.get("safety_t", 0.0) >= SAFETY_S:
+            st["safety_t"] = t
+            safety.evaluate(b)
+        stor = b.profile().get("storage") or {}
+        if stor.get("off_pending") and b.state == "online" and b.config is not None \
+                and safe_write.risk_accepted(b.profile()) and not self._retry_wait(st, "storage", t):
+            try:
+                storage.apply(b, False, via={"kind": "pending"}, app=self.app)
+            except (safe_write.WriteRefused, storage.StorageError) as e:
+                self._failed(b, st, "storage", "storage mode off", e, t)
 
     def _st(self, mac):
         return self.state.setdefault(mac, {"last_pause": 0.0, "conn": None, "error": "", "retry": {}, "last": ""})
@@ -530,6 +551,8 @@ class Scheduler:
             return
         if not safe_write.risk_accepted(b.profile()):
             return  # no unattended commands to a board whose safety warning hasn't been accepted
+        if storage.is_on(b.profile()):
+            return  # storage mode holds the charge limit and balancing; the schedule waits until it's off
         sched = b.profile().get("schedule")
         timers = self.timers(b)
         st = self._st(b.mac)

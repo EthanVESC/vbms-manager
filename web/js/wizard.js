@@ -166,11 +166,14 @@ function riskHtml(b) {
       <li><b>Every write needs your approval.</b> Before anything is sent, you see the exact old and new values, tick a box and click <i>Write to BMS</i>. Risky changes also need you to type the board's name. An approval works once and expires after 2 minutes. Live controls ask you to confirm too.</li>
       <li><b>You can turn these confirmations off</b> (Preferences, only from this computer). Then one tap writes or sends straight away, from any paired device. Danger changes and restores still ask.</li>
       <li><b>Schedules and timers are approved in advance.</b> When you approve one, you approve all of its writes ahead of time. From then on, VBMS Manager writes Charge Start/End, pauses or allows charging, and turns balancing off or on (by writing Balance Max Current = 0 A, then your value back) <b>automatically, without asking you again</b>, until you edit it or turn it off. Scheduled writes still get the same checks, backup, read-back and log.</li>
+      <li><b>API requests are approved in advance too, if you turn them on</b> (Preferences, only from this computer, off by default). Then anything holding one of your API keys can change charge limits, pause charging, turn balancing and storage mode on or off and, with the settings scope, edit settings, <b>without asking you</b>, from wherever your server can be reached. API writes get the same checks, backup, read-back and log. Restores and add-ons are never available over the API.</li>
+      <li><b>Storage mode</b> (if you use it) writes Charge Start/End, Balance Min and Balance Max Current in one write, and writes your previous values back when you turn it off.</li>
     </ul>
 
     <h4>What it can't protect you from</h4>
     <ul class="small">
       <li><b>It keeps your BMS awake and slowly drains the pack.</b> ${esc(AWAKE_WARN)} ${esc(AWAKE_FIX)}</li>
+      <li><b>It disconnects by itself sometimes, on purpose.</b> A board whose SOC stays under 20% for 2 hours (Preferences → Safety), or a board in storage mode with no charger, is disconnected so the BMS can sleep. It reconnects briefly every few hours to check. While disconnected, nothing here watches that board, and safety notices use its last reading.</li>
       <li>Schedules only run while VBMS Manager is running and the computer is awake. If it stops, the board keeps whatever limit it last had, and a paused board can start charging again once the BMS restarts or wakes.</li>
       <li>After the BMS wakes up, a few seconds of charging can happen before the tool reconnects and pauses it again.</li>
       <li>The charge percentage comes from a resting-voltage curve for the cell type you pick, measured on new cells, so it's approximate: cells vary and age, and the BMS stops on the voltage while charging, so the pack settles a little below the chosen percentage. "Other NMC/NCA" uses a typical curve, not your cells' own.</li>

@@ -57,11 +57,37 @@ function connPanel(b) {
   const note = b.link === "ble"
     ? `It stays on Bluetooth until you switch back${b.ble_only ? " (it was added over Bluetooth; add its IP to use WiFi)" : ""}. The Mac must be within Bluetooth range. While it's connected here, VESC Tool can't connect to it over Bluetooth, but it can over WiFi.`
     : `A board talks to one app at a time over WiFi. While it's connected here, VESC Tool can't connect over WiFi${b.ble ? ", but it can over Bluetooth" : ""}.${b.ble && !b.link_known ? " Bluetooth is offered once the board has connected over WiFi once." : ""}`;
-  return `<p class="small">${st} ${over}</p>
-    <div class="row">${b.state === "paused" ? `<button type="button" data-act="resume"${dis()}>Reconnect</button>` : `<button type="button" class="ghost" data-act="pause"${dis()}>Free for VESC Tool</button>`}
+  const r = b.rest;
+  const rest = r ? `<div class="banner small"><b>${r.reason === "storage" ? "Storage mode: letting the BMS sleep." : "Disconnected so the BMS can sleep (low SOC)."}</b>
+      Since ${esc(clock12(r.since, true))}. VBMS Manager checks in every ${f1(r.probe_s / 3600)} h (next ${esc(clock12(r.next, true))}) and stays connected if the charger is plugged in.</div>` : "";
+  return `${rest}<p class="small">${r ? "Resting, normally over" : st} ${over}</p>
+    <div class="row">${b.state === "paused" || r ? `<button type="button" data-act="resume"${dis()}>${r ? "Reconnect now" : "Reconnect"}</button>` : `<button type="button" class="ghost" data-act="pause"${dis()}>Free for VESC Tool</button>`}
     ${sw}<button type="button" class="ghost" data-act="remove"${dis()}>Remove board</button></div>
     <p class="muted small">${note}</p>
-    <div class="risk caution small"><b>⚠ Keeps the BMS awake</b> ${esc(AWAKE_WARN)} Free for VESC Tool disconnects it so it can sleep.</div>`;
+    <div class="risk caution small"><b>⚠ Keeps the BMS awake</b> ${esc(AWAKE_WARN)} Free for VESC Tool disconnects it so it can sleep. Storage mode and the low-SOC disconnect (Preferences → Safety) do it automatically.</div>`;
+}
+
+// Storage mode panel (Board tab): status, the per-board storage settings, on/off.
+function storagePanel(b) {
+  if (!b.mac) return `<div class="muted">Not read yet.</div>`;
+  const st = b.storage, c = b.storage_cfg || {}, n = cellsCount(b), on = !!(st && st.on);
+  const v = b.values;
+  const status = !on ? `<p class="small">Off. Turning it on saves this board's Charge Start/End, Balance Min and Balance Max Current, then writes the storage settings below in one checked write. Turning it off puts the saved values back.</p>`
+    : `<p><span class="chip info">Storage mode on</span> since ${esc(stamp12(st.since))}${st.off_pending ? ` · <b>turning off as soon as it's connected</b>` : ""}</p>
+       ${v && v.cell_max > c.end_v + 0.02 ? `<p class="small">The pack is above storage voltage (highest cell ${f3(v.cell_max)} V). The BMS can't discharge it, so it stays there until you ride it down.</p>` : ""}
+       <p class="muted small">Schedules and timers wait while storage mode is on. Saved for later: Charge ${f3(st.saved && st.saved.vc_charge_start)} / ${f3(st.saved && st.saved.vc_charge_end)} V, Balance Min ${f3(st.saved && st.saved.vc_balance_min)} V, Balance Max Current ${f2(st.saved && st.saved.balance_max_current)} A.</p>`;
+  const num = (id, val, min, max, step) => `<input type="number" id="${id}" value="${val}" min="${min}" max="${max}" step="${step}"${dis()}>`;
+  return `${status}
+    <div class="storegrid small">
+      <label>Charge End per cell ${num("stEnd", f3(c.end_v), 3.6, 4.0, 0.01)} V${n ? ` <span class="muted">(${f1(c.end_v * n)} V pack)</span>` : ""}</label>
+      <label>Start below End ${num("stGap", f3(c.gap), 0.05, 0.2, 0.01)} V <span class="muted">(Start ${f3(c.end_v - c.gap)} V)</span></label>
+      <label>Balance Min ${num("stBal", f3(c.balance_min), 3.0, 4.2, 0.01)} V</label>
+      <label class="check"><input type="checkbox" id="stBalOn"${c.balance ? " checked" : ""}${dis()}> Allow balancing in storage</label>
+      <label class="check"><input type="checkbox" id="stSleep"${c.sleep ? " checked" : ""}${dis()}> Let the BMS sleep once there's no charger (checks in every few hours)</label>
+    </div>
+    <div class="row"><button type="button" class="ghost" data-act="storage-save"${dis()}>Save storage settings</button>
+      <button type="button" data-act="${on ? "storage-off" : "storage-on"}"${dis()}>${on ? "Turn storage mode off…" : "Turn storage mode on…"}</button></div>
+    <p class="muted small">Defaults: Charge End 3.75 V/cell, Start 0.100 V below, Balance Min 3.40 V with balancing allowed. ${on ? "Saving changed settings applies them at the next storage-mode switch; to apply now, turn it off and on." : ""}</p>`;
 }
 
 // "" for the standard 0.100 V gap; otherwise a note (red when outside 0.050–0.200 V).
@@ -476,6 +502,7 @@ export function boardView(root, b, d) {
       <section class="panel"><h3>Logging &amp; backup</h3><div data-slot="log"></div></section>
       <section class="panel"><h3>Connection</h3><div data-slot="conn"></div></section>
     </div>
+    <section class="panel"><h3>Storage mode <span class="more">for leaving the board for weeks</span></h3><div data-slot="storage"></div></section>
     <section class="panel"><h3>Add-ons <span class="more">optional, replaces the BMS script</span></h3><div data-slot="addons"></div></section>
     <section class="panel"><h3>Backups <span class="more">saved automatically before every write</span></h3><div data-slot="backups"></div></section>
     <section class="panel"><h3>Recent events</h3><div data-slot="events"></div></section>
@@ -513,6 +540,7 @@ export function boardView(root, b, d) {
   slot(root, "addons", b.mac ? addonPanel(b, "data-act") : `<div class="muted">Not read yet.</div>`);
   slot(root, "backups", backupList(b));
   slot(root, "conn", connPanel(b));
+  if (!root.querySelector("[data-slot=storage]").contains(document.activeElement)) slot(root, "storage", storagePanel(b));
   slot(root, "events", `<div class="events">${((d && d.events) || b.events || []).slice().reverse().map((e) => `<div><span class="muted">${esc(stamp12(e.time))}</span> <b>${esc(e.kind)}</b> ${esc(e.text)}</div>`).join("") || '<span class="muted">None yet.</span>'}</div>`);
   slot(root, "cfg", d && d.config ? `<div class="scroll"><table class="cfg">${d.config.map((f) =>
     `<tr><td>${esc(f.label)} <span class="muted mono">${esc(f.name)}</span></td><td>${f.secret ? "••••" : esc(f.enum ?? (typeof f.value === "number" ? +f.value.toFixed(6) : f.value))}${f.suffix ? " " + esc(f.suffix) : ""}</td></tr>`).join("")}</table></div>` : `<div class="muted">Loading…</div>`);
@@ -522,16 +550,22 @@ export function boardView(root, b, d) {
 
 export function allView(root, boards) {
   delete root.dataset.dhost;
-  skeleton(root, "all", `<div class="allgrid" data-slot="cards"></div>${keyPanel()}`);
+  skeleton(root, "all", `<div data-slot="bulk"></div><div class="allgrid" data-slot="cards"></div>${keyPanel()}`);
+  const bb = (action, label, cls = "ghost") => `<button type="button" class="small ${cls}" data-bulk="${action}"${dis()}>${label}</button>`;
+  slot(root, "bulk", `<section class="panel bulkbar"><b>All boards</b>
+    <span class="bgroup"><span class="muted small">Charging</span>${bb("charging_on", "Allow")}${bb("charging_off", "Pause")}</span>
+    <span class="bgroup"><span class="muted small">Balancing</span>${bb("balancing_on", "Allow")}${bb("balancing_off", "Disallow")}</span>
+    <span class="bgroup"><span class="muted small">Storage mode</span>${bb("storage_on", "All into storage")}${bb("storage_off", "All out")}</span></section>`);
   slot(root, "cards", boards.map((b) => {
     const v = b.values;
     const [chip, cls] = stateChip(b);
     const pct = currentPct(b);
-    return `<div class="panel mini">
+    const notes = (b.notices || []).filter((n) => n.level !== "info");
+    return `<div class="panel mini">${notes.length ? `<div class="banner small${notes.some((n) => n.level === "bad") ? " bad" : ""}">${notes.map((n) => esc(n.text)).join("<br>")}</div>` : ""}
       <button type="button" class="mini-head" data-pick="${esc(b.host)}"><b>${esc(boardName(b))}</b><span class="chip ${cls}">${esc(chip)}</span><span class="chev" aria-hidden="true">›</span></button>
       <div class="mini-body"><div class="mini-ring">${ring(b)}</div><div>${v ? indicators(b) : noData(b)}${switches(b, ["charge", "balance"], false)}</div></div>
       ${expanded(b)}
-      <div class="mini-foot"><span>${v ? f2(v.v_tot) + " V" : ""}</span><span>${v ? f3(v.cell_min) + "–" + f3(v.cell_max) + " V" : ""}</span><span>${pct != null ? "limit " + pct + "%" : ""}</span></div>
+      <div class="mini-foot"><span>${v ? f2(v.v_tot) + " V" : ""}</span><span>${v ? f3(v.cell_min) + "–" + f3(v.cell_max) + " V" : ""}</span><span>${b.storage && b.storage.on ? "storage mode" : pct != null ? "limit " + pct + "%" : ""}</span></div>
     </div>`;
   }).join(""));
 }

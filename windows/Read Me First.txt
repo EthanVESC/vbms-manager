@@ -1,4 +1,4 @@
-VBMS Manager @VERSION@ for Windows (beta)
+VBMS Manager @VERSION@ for Windows
 ========================================
 
 A local app for VESC VBMS32 battery management systems: watch every cell,
@@ -24,7 +24,7 @@ Installing
    somewhere that stays put, e.g. your Documents folder.
 3. Open the folder and double-click "VBMS Manager" (VBMS Manager.cmd).
 
-   This beta isn't signed, so Windows may say "Windows protected your PC".
+   This release isn't signed, so Windows may say "Windows protected your PC".
    Click "More info", then "Run anyway". You only need to do this once.
 
 4. A black window opens (that's VBMS Manager running) and your browser

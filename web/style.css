@@ -684,3 +684,18 @@ body.viewer .finput input, body.viewer .finput select { opacity: .7; }
   .htable { font-size: 12px; } .htable th, .htable td { padding: 6px 5px; }
   .tile b { font-size: 17px; }
 }
+
+/* ---- 1.0: all-boards bar, storage mode, Preferences API/Safety ---- */
+.panel.bulkbar { display: flex; flex-direction: row; flex-wrap: wrap; align-items: center; gap: 10px 18px; margin-bottom: 12px; }
+.bulkbar .bgroup { display: inline-flex; align-items: center; gap: 6px; }
+.storegrid { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 8px 16px; margin: 8px 0; }
+.storegrid input[type=number], .sfnum input { width: 5.5em; }
+.sfgrid { display: grid; grid-template-columns: 1fr; gap: 6px; margin: 6px 0; }
+.sfgrid .sfnum { padding-left: 26px; }
+table.keys { width: 100%; border-collapse: collapse; margin: 8px 0; }
+table.keys th, table.keys td { text-align: left; padding: 4px 6px; border-bottom: 1px solid var(--line); vertical-align: top; }
+.keynew { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px; }
+.keynew #keyLabel { flex: 1 1 220px; }
+.keyshow { width: 100%; margin-top: 6px; }
+#prefMore h3 { margin-top: 18px; }
+.mini > .banner { margin: 0 0 8px; }

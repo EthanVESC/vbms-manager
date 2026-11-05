@@ -1,4 +1,4 @@
-VBMS Manager @VERSION@ for Linux (beta)
+VBMS Manager @VERSION@ for Linux
 ======================================
 
 A local app for VESC VBMS32 battery management systems: watch every cell,

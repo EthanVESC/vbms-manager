@@ -200,6 +200,24 @@ For those cases, or to restore by hand: open the board in VESC Tool, go to the B
 
 Charge sessions are measured from every 1 s reading whatever the recording interval; gaps longer than 5 s aren't integrated and are flagged. Capacity is estimated as Ah charged ÷ SOC change between a rested voltage before and after a charge, mapped through the board's SOC curve, so it's only as good as that curve and only works inside its range (the bundled curves are for new cells, so treat it as an estimate). Drift and self-discharge need *Detailed* or *Everything*. Self-discharge is measured across idle stretches and sleep gaps of 6 h or more when the BMS's lifetime counters show nothing went in or out. An awake BMS draws power itself, so the pack-level figure includes that; the useful signal is a cell that drops faster than the others.
 
+## Storage mode and safety
+
+**Storage mode** (Board tab, or *All into storage* on the All boards screen) is for leaving a board for weeks:
+- It saves the board's Charge Start/End, Balance Min and Balance Max Current.
+- It then writes the storage settings in one checked write. The defaults are Charge End **3.75 V/cell**, Start 0.100 V below that, Balance Min **3.40 V** with balancing allowed. You can change them per board.
+- Schedules and timers wait while it's on.
+- By default, once there's no charger, the tool disconnects so the BMS can sleep, and checks in every few hours.
+- Turning it off writes the saved values back. If the board is asleep then, it's done as soon as the board reconnects.
+- The BMS can't discharge a pack, so a pack above storage voltage stays there until you ride it down.
+
+**Safety** (Preferences → Safety):
+- **Low-SOC disconnect.** A board whose SOC stays under 20 % for 2 hours without a charger is disconnected, so the tool doesn't keep its BMS awake and drain it further. It reconnects briefly every 6 hours. It stays connected once the charger is plugged in, or press **Reconnect** to end the rest straight away.
+- **Notices.** The dashboard, the board's banner and desktop notifications tell you when:
+  - the pack has been below nominal (3.60 V/cell) for 3 days ("connect the charger");
+  - a cell is under 3.20 V;
+  - a pack has sat above 90 % for 7 days (suggests storage mode).
+- Notices keep working while a board is asleep, using its last reading. Every threshold can be changed.
+
 ## Where things are stored
 
 Everything is under `~/.vbms_manager/` (set `VBMS_MANAGER_HOME` to move it): `boards.json` (nicknames, cell types, accepted curves, acknowledged scripts, schedules, paired devices as hashed tokens), `history/<board>/` (recordings, one file per day, plus a cached analysis digest), `backups/`, `changes.log`, `events.log`, `charges.log`. Nothing is sent anywhere except to your boards.
@@ -209,16 +227,27 @@ Everything is under `~/.vbms_manager/` (set `VBMS_MANAGER_HOME` to move it): `bo
 - By default the UI is served on `127.0.0.1` only. To use it from your phone, start it once with `python3 vbms_manager.py --lan` (remembered; `--local-only` turns it off). It prints the addresses to open and a **pairing code**.
 - Other devices start **view-only**. Entering the pairing code (**Devices**, or the *Pair* button) lets that device make changes; it stays paired until you remove it under **Devices** on the computer running the tool. The code changes on every start, and wrong guesses are rate-limited.
 - Exports (which can contain WiFi keys) need a paired device.
+- Clients from outside your networks (through a forwarded port) get only the key-authenticated API, never the web page or pairing, unless you allow it in Preferences → Internet. Requests that came through a proxy are judged by the address the proxy reports, and are never treated as this computer.
 - The server only answers to IP addresses, `localhost` and this computer's own name, which blocks DNS-rebinding attacks. Every request that changes something also needs a per-run token embedded in the page, so other websites can't drive it.
 - If your phone can't connect, allow incoming connections for Python in your firewall (macOS asks the first time; otherwise System Settings → Network → Firewall → Options).
 - **Finding boards.** Every 2 minutes (and when you click **Search again**), the tool scans each local network this computer is on, up to a /24 each, for VESC's TCP port 65102. It doesn't scan VPN tunnels. Anything that answers is asked for its firmware version (a read-only command), then disconnected. Boards you've already added aren't touched, and found boards are only listed: nothing is added until you click **Add**. It also listens for the boards' UDP broadcasts on port 65109, but those often don't arrive (VESC Tool holds that port while it's open).
 - A board only joins WiFi while it's awake (for example on the charger). Once connected, the tool keeps it awake (see the battery-drain warning at the top). A board shows as *busy* when something else, usually VESC Tool, is connected to it.
 
+## API
+
+Scripts, home automation and CI jobs can read and control boards over HTTP at `/api/v1`, with API keys. It's **off** until you turn on *Allow API requests* in Preferences on the computer running VBMS Manager. That switch approves every API write, so API writes don't ask again. They still get every check, backup, read-back and log entry. Keys have scopes (read / control / settings, plus an extra tick for ⛔ danger settings), and only a hash of each key is kept. Restores and add-on installs aren't available over the API. Full reference and examples: [docs/API.md](docs/API.md).
+
+```bash
+curl -s -H "Authorization: Bearer $KEY" -X POST http://192.168.1.10:8642/api/v1/all/charge-limit -d '{"pct": 80}'
+```
+
+**Port forwarding.** Clients from outside your networks only get the API (with a key), not the web page or pairing. Requests are plain HTTP, so a key crosses the internet unencrypted. Someone on the caller's network (public WiFi, for example) could copy it, so give each key only the scopes it needs, and revoke any key you think leaked. For more protection, reach the server over a VPN (WireGuard, Tailscale) instead of forwarding the port.
+
 ## Running on an always-on computer
 
 Schedules, timers, recording and alerts only run while VBMS Manager is running, so a Raspberry Pi or home server near the chargers is a good home for it. Use the Linux download (`./install.sh --service --lan`, details in its *Read Me First.txt*) or Docker.
 
-The computer running it counts as *this computer*. Your phone and laptop are other devices: view-only until paired with the code from the log. A few things only work from *this computer*: turning confirmations off and removing paired devices. With no screen on the Pi, an SSH tunnel makes your laptop count as local: `ssh -L 8642:127.0.0.1:8642 <you>@<pi>`, then open `http://127.0.0.1:8642`.
+The computer running it counts as *this computer*. Your phone and laptop are other devices: view-only until paired with the code from the log. A few things only work from *this computer*: turning confirmations off, removing paired devices, turning the API on and managing API keys. With no screen on the Pi, an SSH tunnel makes your laptop count as local: `ssh -L 8642:127.0.0.1:8642 <you>@<pi>`, then open `http://127.0.0.1:8642`.
 
 ### Docker
 

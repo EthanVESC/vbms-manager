@@ -44,6 +44,45 @@ class TestClassify(unittest.TestCase):
         self.assertEqual(self.c("192.168.1.20", "evil.example", "tok", ok={"tok"}), "reject")
 
 
+    def test_internet(self):
+        self.assertEqual(self.c("8.8.8.8", "203.0.113.5:8642"), "internet")
+        self.assertEqual(self.c("8.8.8.8", "evil.example"), "internet")
+        self.assertEqual(self.c("100.101.1.2", "192.168.1.10:8642"), "viewer")      # Tailscale / CGNAT
+        self.assertEqual(self.c("fd00::5", "192.168.1.10:8642"), "viewer")
+        self.assertEqual(access.classify("8.8.8.8", "203.0.113.5", None, Sessions(), NAMES, internet_ui=True),
+                         "viewer")
+
+    def test_proxy_never_local(self):
+        h = lambda **kw: {k.replace("_", "-"): v for k, v in kw.items()}
+        cl = lambda peer, hdrs, host="127.0.0.1:8642": access.classify(peer, host, None, Sessions(), NAMES,
+                                                                       headers=hdrs)
+        self.assertEqual(cl("127.0.0.1", h(X_Forwarded_For="8.8.8.8")), "internet")
+        self.assertEqual(cl("127.0.0.1", h(X_Forwarded_For="1.2.3.4, 127.0.0.1")), "viewer")
+        self.assertEqual(cl("127.0.0.1", h(X_Real_IP="8.8.4.4")), "internet")
+        self.assertEqual(cl("127.0.0.1", h(Forwarded='for="[2606:4700::1111]:443";proto=https')), "internet")
+        self.assertEqual(cl("127.0.0.1", h(Forwarded="for=192.168.1.9")), "viewer")
+        # an internet client faking the header is judged by its own address
+        self.assertEqual(cl("8.8.8.8", h(X_Forwarded_For="192.168.1.9")), "internet")
+
+
+class TestApiKeys(unittest.TestCase):
+    def test_keys(self):
+        k = access.ApiKeys(FakeStore())
+        with self.assertRaises(ValueError):
+            k.create("x", [])
+        with self.assertRaises(ValueError):
+            k.create("x", ["read"], danger=True)
+        tok, rec = k.create("ci", ["read", "control", "bogus"])
+        self.assertEqual(rec["scopes"], ["read", "control"])
+        self.assertTrue(tok.startswith("vbms_"))
+        self.assertNotIn(tok, json.dumps(k.store.s))
+        self.assertEqual(k.check(tok, "1.2.3.4")["label"], "ci")
+        self.assertEqual(k.list()[0]["last_ip"], "1.2.3.4")
+        self.assertIsNone(k.check(tok + "x", "1.2.3.4"))
+        k.revoke(rec["id"])
+        self.assertIsNone(k.check(tok, "1.2.3.4"))
+
+
 class FakeStore:
     def __init__(self):
         self.s = {}
@@ -93,7 +132,7 @@ class TestViewerHttp(Base):
 
     def test_viewer_cannot_write(self):
         orig = access.classify
-        access.classify = lambda peer, host, cookie, sessions, names=None: orig("192.168.1.20", "192.168.1.10", cookie, sessions, names)
+        access.classify = lambda peer, host, cookie, sessions, names=None, **kw: orig("192.168.1.20", "192.168.1.10", cookie, sessions, names)
         try:
             httpd = server.serve(self.app, "127.0.0.1", 0)
             httpd.RequestHandlerClass = server.make_handler(self.app, httpd.server_address[1])

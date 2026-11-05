@@ -6,6 +6,8 @@
     python3 vbms_manager.py --local-only    # back to this computer only
     python3 vbms_manager.py --add 192.168.1.50 --add 192.168.1.51
     python3 vbms_manager.py --port 9000 --no-browser
+
+The key-authenticated API is under /api/v1 (turn it on in Preferences; see docs/API.md).
 """
 
 import _thread
@@ -24,7 +26,7 @@ if sys.version_info < (3, 8):
 import access  # noqa: E402
 import server  # noqa: E402
 
-VERSION = "0.9.0-beta1"
+VERSION = "1.0.0"
 
 
 def exit_with_parent():
@@ -55,6 +57,7 @@ def main():
         exit_with_parent()
 
     app = server.App(start_discovery=not args.no_discovery)
+    app.version = VERSION
     for h in args.add:
         app.add_host({"host": h})
     if args.lan or args.local_only:
@@ -73,6 +76,8 @@ def main():
         print("Pairing code:         %s   (other devices can watch; enter this code on one to let it make changes)"
               % app.pairing.code)
         print("If other devices can't connect, allow incoming connections for Python in your firewall.")
+        print("From the internet (a forwarded port) only the key-authenticated API answers, and only once it's "
+              "turned on in Preferences.")
     else:
         print("Only this computer can open it. Run with --lan to use it from your phone.")
     if not args.no_browser:

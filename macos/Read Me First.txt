@@ -1,4 +1,4 @@
-VBMS Manager @VERSION@ (beta)
+VBMS Manager @VERSION@
 =============================
 
 A local app for VESC VBMS32 battery management systems: watch every cell,
@@ -17,7 +17,7 @@ Installing
 1. Drag "VBMS Manager" onto the Applications folder in this window.
 2. Open it from Applications.
 
-   This beta isn't notarized by Apple, so the first time macOS says it
+   This release isn't notarized by Apple, so the first time macOS says it
    "can't be opened" or "can't verify the developer". Click Done (not
    Move to Trash), then:
      System Settings > Privacy & Security > scroll down to
@@ -43,10 +43,32 @@ How it runs
   drains your battery (in practice a few percent per day). Left plugged in,
   the charger also kicks on for about 30 seconds roughly twice a day to top
   it back up. Before storing the board or leaving it for days, quit VBMS
-  Manager or use Board > Free for VESC Tool so the BMS can sleep.
+  Manager, turn on Storage mode (Board tab), or use Board > Free for VESC
+  Tool so the BMS can sleep. A board whose SOC stays under 20% for 2 hours
+  is disconnected by itself so it can sleep (Preferences > Safety).
 - Only one app can talk to a board at a time. While VBMS Manager is connected,
   VESC Tool can't connect to that board over WiFi. Use Board > Free for VESC
   Tool, or quit VBMS Manager from the menu.
+
+
+Using it as a server (API, port forwarding)
+-------------------------------------------
+- Scripts and other computers can control your boards over the API
+  (README.md and API.md). It's off until you turn on "Allow API requests"
+  in Preferences, and every caller needs an API key you make there.
+- To reach it from outside your home, turn on "Use from Phones on This
+  Network" and forward the router's port to this Mac's port 8642. Clients
+  from the internet only get the API, never the web page.
+- Requests are plain HTTP, so a key isn't encrypted on its way. Give each
+  key only the scopes it needs, and revoke any key you think leaked.
+- Keep the Mac awake: System Settings > Battery (or Energy) > "Prevent
+  automatic sleeping when the display is off". While it sleeps, nothing
+  answers and schedules pause.
+- The first time a device connects, macOS may ask whether "python3" may
+  accept incoming connections: click Allow.
+- A VPN on this Mac that sends all traffic through the tunnel can stop
+  replies to the internet from getting back. Test from a phone on mobile
+  data.
 
 
 Your data

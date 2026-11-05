@@ -67,6 +67,7 @@ stage_app() {
 # stage_docs <dest dir> <platform folder>: README, LICENSE and that platform's "Read Me First.txt".
 stage_docs() {
   cp "$SRC/README.md" "$SRC/LICENSE" "$1/"
+  cp "$SRC/docs/API.md" "$1/API.md"
   sed "s/@VERSION@/$VERSION/" "$SRC/$2/Read Me First.txt" > "$1/Read Me First.txt"
 }
 

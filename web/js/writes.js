@@ -392,3 +392,43 @@ export function openChargeSheet(b) {
   upd();
   dlg.showModal();
 }
+
+// ---------------------------------------------------------------- storage mode
+
+export async function setStorage(b, on) {
+  if (!canWrite()) return toast("View-only on this device. Pair it to change storage mode.");
+  try {
+    const prop = await api("/api/storage/prepare", { host: b.host, mac: b.mac, on });
+    if (prop.noop) { await hooks.refresh(); await hooks.reloadDetail(b.host); return toast(on ? `Storage mode on (${boardName(b)} already had those settings).` : `Storage mode off (${boardName(b)}).`); }
+    if (await finish(b, prop)) toast(on ? `Storage mode on for ${boardName(b)}.` : `Storage mode off for ${boardName(b)}: settings from before are back.`);
+  } catch (e) { fail(e); }
+}
+
+export async function saveStorageCfg(b, cfg) {
+  try { await api("/api/storage/settings", { host: b.host, cfg }); await hooks.refresh(); await hooks.reloadDetail(b.host); toast("Storage settings saved."); return true; }
+  catch (e) { fail(e); return false; }
+}
+
+// ---------------------------------------------------------------- all boards at once
+
+export async function bulkAction(action) {
+  if (!canWrite()) return toast("View-only on this device. Pair it to change boards.");
+  let p;
+  try { p = await api("/api/bulk/prepare", { action }); } catch (e) { return fail(e); }
+  const rows = p.rows.map((r) => `<tr><td><b>${esc(r.name)}</b></td><td>${r.will ? esc(r.will) : `<span class="muted">skipped: ${esc(r.blocked)}</span>`}</td></tr>`).join("");
+  if (!p.count) return showMsg(p.label + " (all boards)", `<p>No board can take this right now.</p><table class="diff">${rows}</table>`);
+  const flash = /balancing|storage/.test(action);
+  const ok = skipConfirm() || await approve(`${p.label}: all boards`, `<table class="diff"><tr><th>Board</th><th>What happens</th></tr>${rows}</table>
+    <p class="muted small">${flash ? "Each board gets its own checked write: fresh read, backup, write, read-back, logged." : "A live command: it isn't saved and resets when a BMS restarts or wakes."} A board that fails doesn't stop the others.</p>`,
+    `Apply this to the ${p.count} board${p.count > 1 ? "s" : ""} listed.`, p.label);
+  if (!ok) return;
+  if (flash) showMsg(p.label + "…", `<p>Working through ${p.count} board${p.count > 1 ? "s" : ""}. Each write takes a few seconds.</p>`);
+  try {
+    const res = await api("/api/bulk/commit", { id: p.id, skipped_confirm: skipConfirm() });
+    await hooks.refresh();
+    const bad = res.results.filter((r) => !r.ok && !r.skipped);
+    const list = res.results.map((r) => `<li><b>${esc(r.name)}</b>: ${r.ok ? "" : r.skipped ? '<span class="muted">skipped, </span>' : '<span class="bad-t">failed, </span>'}${esc(r.result)}</li>`).join("");
+    if (!flash && !bad.length) { if ($("#msgDlg").open) $("#msgDlg").close(); return toast(`${p.label}: done on every board.`); }
+    showMsg(bad.length ? `${p.label}: ${bad.length} failed` : `${p.label}: done`, `<ul>${list}</ul>`);
+  } catch (e) { fail(e); }
+}

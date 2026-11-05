@@ -79,8 +79,9 @@ export function alertCfg() {
 export const AWAKE_WARN = "While VBMS Manager is connected to a board, its BMS never goes to sleep. It keeps powering itself " +
   "from the pack, so it will drain your battery over the course of weeks: in practice a few percent per day. If the board is " +
   "left plugged in, the charger will also kick on for about 30 seconds roughly twice a day to top the pack back up.";
-export const AWAKE_FIX = "Before you store the board or leave it for days, quit VBMS Manager or use Free for VESC Tool on the " +
-  "board's Board tab so the BMS can sleep.";
+export const AWAKE_FIX = "Before you store the board or leave it for days, turn on Storage mode (it lets the BMS sleep once it's " +
+  "settled), quit VBMS Manager, or use Free for VESC Tool on the board's Board tab. A board whose SOC stays very low is " +
+  "disconnected automatically so it can sleep (Preferences → Safety).";
 
 export function store(key, val) {
   try { if (val === undefined) return JSON.parse(localStorage.getItem(key) || "null"); localStorage.setItem(key, JSON.stringify(val)); } catch { return null; }
@@ -124,6 +125,8 @@ export function median(xs) {
 export function boardAlerts(b) {
   const out = [];
   const v = b.values, a = alertCfg();
+  // Safety notices come from the server and also cover boards that are asleep or offline.
+  for (const n of b.notices || []) out.push({ k: "n_" + n.key, t: n.text, bad: n.level === "bad", notice: n.level });
   if (!v || b.state !== "online") return out;
   if (v.charge_fault) out.push({ k: "fault", t: "Charge over-current fault latched (FLT_CHG_OC). Unplug the charger for 5 s to clear.", bad: true });
   if (v.cell_delta_mv != null && v.cell_delta_mv > a.delta) out.push({ k: "delta", t: `Cell imbalance ${f1(v.cell_delta_mv)} mV (alert above ${a.delta} mV)` });
@@ -146,8 +149,10 @@ export function stateChip(b) {
     if (b.runtime && b.runtime.charge_allowed && b.runtime.charge_allowed.value === 0) return ["Charging paused", "warn"];
     if (v && v.is_balancing) return ["Balancing", "warn"];
     if (v && v.v_charge > 5) return ["Charger connected", "ok"];
+    if (b.storage && b.storage.on) return ["Storage mode", "info"];
     return ["Online", "ok"];
   }
+  if (b.state === "resting") return b.rest && b.rest.reason === "storage" ? ["Storage · sleeping", "info"] : ["Sleeping (low SOC)", "warn"];
   return ({ connecting: ["Connecting…", ""], searching: ["Looking over Bluetooth…", ""], busy: ["Busy (another app)", "warn"], offline: ["Offline", ""],
     paused: ["Freed for VESC Tool", "warn"], error: ["Error", "bad"] })[b.state] || [b.state, ""];
 }
@@ -186,7 +191,7 @@ export function allowState(b, kind) {
     const on = !(rt && rt.value === 0);
     // Match the prefix only: a manual change can say "by you, overriding the schedule …".
     const why = (rt && rt.why) || "";
-    const who = !rt ? "" : !why.startsWith("by schedule") ? "you" : /\(Timer:/.test(why) ? "timer" : "schedule";
+    const who = !rt ? "" : why.startsWith("by API") ? "API" : !why.startsWith("by schedule") ? "you" : /\(Timer:/.test(why) ? "timer" : "schedule";
     return { on, cause: c && c.value === (on ? 1 : 0) ? cause : rt ? `${who}, ${rt.t ? clock12(rt.t) : hms12(rt.time)}` : "" };
   }
   const lim = b.limits_cfg || {};

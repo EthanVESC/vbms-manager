@@ -23,13 +23,17 @@ from urllib.parse import parse_qs, urlparse
 
 import access
 import analysis
+import api as api_mod
 import ble
 import board as board_mod
 import cells
 import charge_limit
 import datalog
 import safe_write
+import bulk
+import safety
 import schedule
+import storage
 import store
 from board import Board
 from discovery import Discovery
@@ -44,6 +48,10 @@ class App:
         self.port = 8642
         self.store = store.BoardStore()
         self.pairing = access.Pairing(self.store)
+        self.keys = access.ApiKeys(self.store)
+        self.version = "dev"
+        self.httpd = None
+        self.internet_seen = None     # last time a client from outside your networks reached the server
         self.cells = cells.load()
         self.boards = {}
         self.lock = threading.Lock()
@@ -58,6 +66,7 @@ class App:
             if sched is not None:
                 self.store.update(mac, schedule=sched)
         self.scheduler = schedule.Scheduler(self)
+        self.api = api_mod.Api(self)
         if start_scheduler:
             self.scheduler.start()
         for h in self.store.hosts():
@@ -97,7 +106,10 @@ class App:
         if role == "local":
             acc["pair_code"] = self.pairing.code
             acc["devices"] = self.pairing.devices()
-            acc["urls"] = ["http://%s:%d/" % (ip, self.port) for ip in access.lan_ips()] if self.lan else []
+            acc["urls"] = ["http://%s:%d/" % (ip, self.port)
+                           for ip in access.lan_ips()] if self.lan else []
+            acc["api_keys"] = self.keys.list()
+            acc["internet_seen"] = self.internet_seen
         return {"boards": [self.snapshot(b) for b in self.boards.values()],
                 "discovered": self.discovery.list(),
                 "discovery": self.discovery.status(),
@@ -113,7 +125,10 @@ class App:
                 "access": acc}
 
     def _public_settings(self):
-        st = {k: v for k, v in self.store.settings().items() if k != "paired_devices"}
+        st = {k: v for k, v in self.store.settings().items() if k not in ("paired_devices", "api_keys")}
+        st["safety"] = safety.settings_from(st)
+        st["api"] = st.get("api") or {"on": False}
+        st["internet_ui"] = bool(st.get("internet_ui"))
         st["logging"] = datalog.settings_from(st)
         st["alerts"] = board_mod.alert_settings(st)
         st["alerts_saved"] = "alerts" in self.store.settings()
@@ -282,6 +297,16 @@ class App:
 
     def prepare(self, body):
         b = self._online_mac(body)
+        start, end, reason = self.charge_target(b, body)
+        try:
+            return safe_write.prepare(b, start, end, reason)
+        except safe_write.WriteRefused as e:
+            raise ApiError(str(e))
+
+    def charge_target(self, b, body):
+        """(start, end, reason) for a charge-limit request: {pct}, {end[, start]} or {fix_gap}."""
+        if storage.is_on(b.profile()):
+            raise ApiError("storage mode is on for this board; turn it off first (it holds the charge limit)")
         vals = b.config.values
         if body.get("fix_gap"):
             end = round(vals["vc_charge_end"], 3)
@@ -309,10 +334,7 @@ class App:
                 raise ApiError(str(e))
             start, end = res["start"], res["end"]
             reason = "charge limit %d%%" % pct
-        try:
-            return safe_write.prepare(b, start, end, reason)
-        except safe_write.WriteRefused as e:
-            raise ApiError(str(e))
+        return start, end, reason
 
     def _curve(self, b):
         r = b.cell_profile()
@@ -333,10 +355,13 @@ class App:
     def commit(self, body):
         b = self._online_mac(body)
         try:
-            return safe_write.commit(b, body.get("id"), body.get("confirm_text"),
-                                     skipped_confirm=body.get("skipped_confirm") is True and self._skip_on())
+            res = safe_write.commit(b, body.get("id"), body.get("confirm_text"),
+                                    skipped_confirm=body.get("skipped_confirm") is True and self._skip_on())
         except safe_write.WriteRefused as e:
             raise ApiError(str(e))
+        if res.get("storage"):
+            storage.finish(b, res["storage"], self)
+        return res
 
     def addon_prepare(self, body):
         b = self._online_mac(body)
@@ -392,7 +417,82 @@ class App:
                     raise ApiError('type "skip confirmations" to turn this on')
             self.store.update_settings(confirm_skip={"on": on, "since": time.strftime("%Y-%m-%d %H:%M:%S")})
             store.append_log("changes", {"event": "prefs", "confirm_skip": on, "role": role})
+        if "api" in body:
+            on = body["api"] is True
+            if role != "local":
+                raise ApiError("API requests can only be turned on or off from the computer running VBMS Manager")
+            if on and str(body.get("phrase", "")).strip().lower() != "allow api requests":
+                raise ApiError('type "allow api requests" to turn this on')
+            self.store.update_settings(api={"on": on, "since": time.strftime("%Y-%m-%d %H:%M:%S")})
+            store.append_log("changes", {"event": "prefs", "api": on, "role": role})
+        if "internet_ui" in body:
+            if role != "local":
+                raise ApiError("this can only be changed from the computer running VBMS Manager")
+            on = body["internet_ui"] is True
+            self.store.update_settings(internet_ui=on)
+            store.append_log("changes", {"event": "prefs", "internet_ui": on, "role": role})
+        if "safety" in body:
+            try:
+                st = safety.clean(body["safety"] or {}, safety.settings_from(self.store.settings()))
+            except ValueError as e:
+                raise ApiError(str(e))
+            self.store.update_settings(safety=st)
+            store.append_log("changes", {"event": "prefs", "safety": st, "role": role})
         return {"ok": True, "settings": self._public_settings()}
+
+    def key_create(self, body):
+        try:
+            token, rec = self.keys.create(body.get("label"), body.get("scopes"), body.get("danger") is True)
+        except ValueError as e:
+            raise ApiError(str(e))
+        store.append_log("changes", {"event": "api_key", "action": "create", "id": rec["id"], "label": rec["label"],
+                                     "scopes": rec["scopes"], "danger": rec["danger"]})
+        return {"ok": True, "key": token, "record": rec}
+
+    def key_revoke(self, body):
+        try:
+            self.keys.revoke(body.get("id"))
+        except ValueError as e:
+            raise ApiError(str(e))
+        store.append_log("changes", {"event": "api_key", "action": "revoke", "id": body.get("id")})
+        return {"ok": True, "api_keys": self.keys.list()}
+
+    # -- storage mode
+
+    def storage_prepare(self, body):
+        b = self._online_mac(body)
+        self._risk_ok(b)
+        try:
+            prop, info = storage.plan(b, body.get("on") is True)
+        except (safe_write.WriteRefused, storage.StorageError) as e:
+            raise ApiError(str(e))
+        if prop is None:
+            storage.finish(b, info, self)
+            return {"noop": True, "board": self.snapshot(b, detail=True)}
+        return safe_write.public(prop)
+
+    def storage_settings(self, body):
+        b = self._mac_board(body)
+        try:
+            c = storage.clean_cfg(body.get("cfg") or {}, storage.cfg(b.profile()))
+        except storage.StorageError as e:
+            raise ApiError(str(e))
+        self.store.update(b.mac, storage_cfg=c)
+        return self.snapshot(b, detail=True)
+
+    # -- all boards at once
+
+    def bulk_prepare(self, body):
+        try:
+            return bulk.prepare(self, body.get("action"))
+        except bulk.BulkError as e:
+            raise ApiError(str(e))
+
+    def bulk_commit(self, body):
+        try:
+            return bulk.commit(self, body.get("id"), skipped=body.get("skipped_confirm") is True and self._skip_on())
+        except bulk.BulkError as e:
+            raise ApiError(str(e))
 
     # -- schedule
 
@@ -515,6 +615,25 @@ class App:
         b.pause() if body.get("pause") else b.resume()
         return {"ok": True}
 
+    def find_board(self, ident):
+        """A board by MAC (with or without colons), host, or nickname (case-insensitive)."""
+        ident = str(ident or "").strip()
+        if not ident:
+            return None
+        flat = ident.replace(":", "").replace("-", "").lower()
+        with self.lock:
+            boards = list(self.boards.values())
+        for b in boards:
+            if b.host == ident:
+                return b
+        for b in boards:
+            if b.mac and b.mac.replace(":", "").lower() == flat:
+                return b
+        for b in boards:
+            if b.mac and (b.profile().get("nickname") or "").strip().lower() == ident.lower():
+                return b
+        return None
+
     # -- recording, history, analysis
 
     def logging_settings(self, body):
@@ -565,7 +684,7 @@ class App:
         return self.snapshot(b, detail=True)
 
     def _mac_board(self, q):
-        b = self.board(q.get("host"))
+        b = q["_board"] if q.get("_board") is not None else self.board(q.get("host"))
         if not b.mac:
             raise ApiError("board has not been read yet")
         return b
@@ -606,7 +725,7 @@ class App:
         return {"ok": True}
 
     def _online_mac(self, body) -> Board:
-        b = self.board(body.get("host"))
+        b = body["_board"] if body.get("_board") is not None else self.board(body.get("host"))
         if not b.mac or b.config is None:
             raise ApiError("board has not been read yet")
         if body.get("mac") and body["mac"] != b.mac:
@@ -629,7 +748,42 @@ def make_handler(app: App, port: int):
 
         def _role(self):
             cookie = access.parse_cookie(self.headers.get("Cookie")).get(access.COOKIE)
-            return access.classify(self.client_address[0], self.headers.get("Host", ""), cookie, app.pairing)
+            role = access.classify(self.client_address[0], self.headers.get("Host", ""), cookie, app.pairing,
+                                   headers=self.headers, internet_ui=bool(app.store.settings().get("internet_ui")))
+            if role == "internet" or not access.is_lan(access._ip(self._client_ip())):
+                app.internet_seen = time.strftime("%Y-%m-%d %H:%M:%S")
+            return role
+
+        def _client_ip(self):
+            return access.client_ip(self.client_address[0], self.headers)[0]
+
+        def _internet_page(self):
+            data = (b"This VBMS Manager only answers API requests (/api/v1, with an API key) from outside your "
+                    b"network.\nTo use the web page from here, allow it in Preferences on the computer running "
+                    b"VBMS Manager, or use a VPN.\n")
+            self.send_response(403)
+            self.send_header("Content-Type", "text/plain; charset=utf-8")
+            self.send_header("Content-Length", str(len(data)))
+            self.end_headers()
+            self.wfile.write(data)
+
+        def _api_v1(self, method):
+            u = urlparse(self.path)
+            ip = self._client_ip()
+            q = {k: v[0] for k, v in parse_qs(u.query).items()}
+            body = {}
+            if method == "POST":
+                try:
+                    n = int(self.headers.get("Content-Length") or 0)
+                    if n > 1_000_000:
+                        raise ValueError
+                    body = json.loads(self.rfile.read(n) or b"{}") if n else {}
+                    if not isinstance(body, dict):
+                        raise ValueError
+                except ValueError:
+                    return self._json({"error": "body must be a JSON object", "code": "bad_json"}, 400)
+            code, obj = app.api.handle(method, u.path, q, body, self.headers, ip)
+            return self._json(obj, code)
 
         def _json(self, obj, code=200, headers=()):
             data = json.dumps(obj).encode("utf-8")
@@ -643,7 +797,11 @@ def make_handler(app: App, port: int):
             self.wfile.write(data)
 
         def do_GET(self):
+            if self.path.startswith("/api/v1/") or self.path == "/api/v1":
+                return self._api_v1("GET")
             role = self._role()
+            if role == "internet":
+                return self._internet_page()
             if role == "reject":
                 return self._json({"error": "bad host"}, 403)
             u = urlparse(self.path)
@@ -720,7 +878,11 @@ def make_handler(app: App, port: int):
             self.wfile.write(data)
 
         def do_POST(self):
+            if self.path.startswith("/api/v1/") or self.path == "/api/v1":
+                return self._api_v1("POST")
             role = self._role()
+            if role == "internet":
+                return self._internet_page()
             if role == "reject" or self.headers.get("X-VBMS-Token") != app.token:
                 return self._json({"error": "forbidden"}, 403)
             try:
@@ -774,10 +936,22 @@ def make_handler(app: App, port: int):
                 "/api/timer/prepare": app.timer_prepare,
                 "/api/timer/commit": app.timer_commit,
                 "/api/timer/cancel": app.timer_cancel,
+                "/api/storage/prepare": app.storage_prepare,
+                "/api/storage/settings": app.storage_settings,
+                "/api/bulk/prepare": app.bulk_prepare,
+                "/api/bulk/commit": app.bulk_commit,
             }
             if path == "/api/prefs":
                 try:
                     return self._json(app.prefs(body, role))
+                except ApiError as e:
+                    return self._json({"error": str(e)}, 400)
+            if path in ("/api/keys/create", "/api/keys/revoke"):
+                if role != "local":
+                    return self._json({"error": "API keys can only be managed from the computer running VBMS Manager"},
+                                      403)
+                try:
+                    return self._json((app.key_create if path.endswith("create") else app.key_revoke)(body))
                 except ApiError as e:
                     return self._json({"error": str(e)}, 400)
             if path == "/api/devices/revoke":
@@ -797,8 +971,22 @@ def make_handler(app: App, port: int):
     return Handler
 
 
+class _Server(ThreadingHTTPServer):
+    def finish_request(self, request, client_address):
+        request.settimeout(60)    # a forwarded port gets slow or idle clients; don't hold a thread forever
+        self.RequestHandlerClass(request, client_address, self)
+
+    def handle_error(self, request, client_address):
+        """Dropped connections are routine on a forwarded port: don't print a traceback for each."""
+        import sys
+        if isinstance(sys.exc_info()[1], (ConnectionError, TimeoutError, OSError)):
+            return
+        ThreadingHTTPServer.handle_error(self, request, client_address)
+
+
 def serve(app: App, host="127.0.0.1", port=8642):
     app.lan = host not in ("127.0.0.1", "localhost", "::1")
-    httpd = ThreadingHTTPServer((host, port), make_handler(app, port))
+    httpd = _Server((host, port), make_handler(app, port))
     httpd.daemon_threads = True
+    app.httpd = httpd
     return httpd

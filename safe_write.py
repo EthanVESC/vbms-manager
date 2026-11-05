@@ -46,7 +46,7 @@ from vesc.confparams import SECRET_FIELDS
 PROPOSAL_TTL = 120.0
 FIELDS = ("vc_charge_start", "vc_charge_end")
 # Bump when the safety warning (web/js/wizard.js) changes enough that every board must accept it again.
-RISK_VERSION = 4
+RISK_VERSION = 5
 
 
 class WriteRefused(Exception):
@@ -175,6 +175,111 @@ def apply_scheduled(board, start, end, reason):
     """
     prop = prepare(board, start, end, reason, register=False)
     return _commit(board, prop)
+
+
+def apply(board, prop, via=None):
+    """Write a proposal made with register=False, without the interactive confirmation step.
+
+    For approvals given elsewhere: a schedule or timer the user approved, or an API request
+    (approved once by the "Allow API requests" switch in Preferences). via: who asked, logged
+    with the write, e.g. {"kind": "api", "key": "ci", "ip": "1.2.3.4"}.
+    """
+    if via:
+        prop["via"] = via
+    return _commit(board, prop)
+
+
+def prepare_storage(board, start, end, bal_min, bal_amps, reason="", register=True):
+    """One proposal for Storage mode on/off: Charge Start/End plus Balance Min and Balance Max Current,
+    patched into a single blob so it's one backup, one write, one read-back. Sends nothing.
+
+    Charge Start/End get the charge-limit hard limits; the other two the same checks as any edited setting.
+    """
+    reasons = preconditions(board)
+    if reasons:
+        raise WriteRefused("; ".join(reasons))
+    resolved = board.cell_profile()
+    if not resolved:
+        raise WriteRefused("choose a cell type for this board first")
+    prof = board.profile()
+    with board.client._lock:
+        fw = board.client.fw_version()
+        schema = board.client.get_config_schema()
+        cfg = schema.decode(board.client.get_config_blob())
+    if fw["mac"] != board.mac:
+        raise WriteRefused("the device at %s is not the board it was (MAC changed)" % board.host)
+    if not cfg.roundtrip_ok():
+        raise WriteRefused("config layout check failed on fresh read")
+    start, end = round(float(start), 3), round(float(end), 3)
+    try:
+        charge_limit.check(start, end, resolved[2], cfg.values)
+    except charge_limit.LimitError as e:
+        raise WriteRefused(str(e))
+
+    rows = []
+    blob1 = cfg.blob
+    charge_changed = any(abs(cfg.values[n] - v) > 0.0005 for n, v in zip(FIELDS, (start, end)))
+    if charge_changed:
+        blob1 = cfg.patch_float32_auto({"vc_charge_start": start, "vc_charge_end": end})
+    cfg1 = schema.decode(blob1)
+    other = {}
+    if abs(cfg1.values["vc_balance_min"] - bal_min) > 0.0005:
+        other["vc_balance_min"] = bal_min
+    if abs(cfg1.values["balance_max_current"] - bal_amps) > 0.0005:
+        other["balance_max_current"] = bal_amps
+    stored = {}
+    if other:
+        try:
+            stored, rows = config_fields.validate(schema, cfg1.values, other)
+        except config_fields.FieldError as e:
+            raise WriteRefused(str(e))
+    if not charge_changed and not stored:
+        return None   # the board already has exactly these settings
+    new_blob = cfg1.patch_fields(stored) if stored else blob1
+    check_cfg = schema.decode(new_blob)
+    new_vals = {"vc_charge_start": check_cfg.values["vc_charge_start"], "vc_charge_end": check_cfg.values["vc_charge_end"]}
+    for name in schema.order:
+        if name in FIELDS:
+            continue
+        want = stored[name] if name in stored else cfg.values[name]
+        if check_cfg.values[name] != want:
+            raise WriteRefused("internal check failed: %s would not be stored as intended" % name)
+    if (not charge_limit.gap_valid(new_vals["vc_charge_start"], new_vals["vc_charge_end"])
+            or abs(new_vals["vc_charge_end"] - end) > charge_limit.GAP_TOL
+            or abs(new_vals["vc_charge_start"] - start) > charge_limit.GAP_TOL):
+        raise WriteRefused("internal check failed: Charge Start/End would not be stored as requested")
+    changed = _diff(cfg.blob, new_blob)
+    allowed = set()
+    for name in list(FIELDS) + list(stored):
+        allowed.update(range(*cfg.spans[name]))
+    if not set(changed) <= allowed:
+        raise WriteRefused("internal check failed: patch touched bytes outside the storage fields")
+
+    charge_rows = [{"name": n, "label": schema.fields[n].long_name, "group": "charging",
+                    "old": "%.3f V" % cfg.values[n], "new": "%.3f V" % new_vals[n], "risks": []}
+                   for n in FIELDS if abs(cfg.values[n] - new_vals[n]) > 0.0005]
+    names = [n for n in FIELDS if abs(cfg.values[n] - new_vals[n]) > 0.0005] + list(stored)
+    pid = secrets.token_hex(8)
+    prop = {
+        "id": pid, "mac": board.mac, "host": board.host, "name": prof.get("nickname") or fw.get("hw_name"),
+        "reason": reason or "storage mode", "kind": "storage", "rows": charge_rows + rows,
+        "old": {n: _loggable(n, cfg.values[n]) for n in names},
+        "new": {n: _loggable(n, check_cfg.values[n]) for n in names},
+        "confirm_name": None, "bytes_changed": len(changed),
+        "blob_before": cfg.blob, "blob_after": new_blob, "created": time.time(),
+    }
+    if not register:
+        return prop
+    with _plock:
+        _proposals.clear()
+        _proposals[pid] = prop
+    return public(prop)
+
+
+def take(pid):
+    """Remove and return a pending proposal (for flows that commit it themselves, like storage mode)."""
+    with _plock:
+        return _proposals.pop(pid, None)
 
 
 def prepare_fields(board, changes, reason="", register=True):
@@ -454,6 +559,10 @@ def _commit(board, prop):
            "rows": [{k: r[k] for k in ("label", "old", "new")} for r in prop.get("rows", [])]}
     if prop.get("skipped_confirm"):
         log["confirm"] = "skipped (Preferences: skip confirmations)"
+    if prop.get("via"):
+        log["via"] = prop["via"]
+        if prop["via"].get("kind") == "api":
+            log["confirm"] = "pre-approved (Preferences: allow API requests)"
     c = board.client
     with c._lock:
         fw = c.fw_version()
@@ -503,8 +612,11 @@ def _commit(board, prop):
     board.config = schema.decode(readback)
     board._event("config", "%s: %s" % (prop["reason"], ", ".join("%s %s -> %s" % (r["label"], r["old"], r["new"])
                                                                   for r in prop.get("rows", []))))
-    return {"ok": True, "kind": prop.get("kind", "charge"), "new": prop["new"], "rows": prop.get("rows", []),
-            "backup": bpath}
+    out = {"ok": True, "kind": prop.get("kind", "charge"), "new": prop["new"], "rows": prop.get("rows", []),
+           "backup": bpath}
+    if prop.get("storage"):
+        out["storage"] = prop["storage"]
+    return out
 
 
 # -- Lisp script add-ons ----------------------------------------------------------

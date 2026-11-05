@@ -12,8 +12,10 @@ import charge_limit
 import config_fields
 import datalog
 import safe_write
+import safety
 import script_check
 import sessions
+import storage as storage_mod
 import store
 from vesc.bms_values import parse_bms_values
 from vesc.client import COMM_BMS_FORCE_BALANCE, COMM_BMS_SET_CHARGE_ALLOWED, BoardBusy, VescClient, VescError
@@ -27,6 +29,8 @@ HISTORY_LEN = 3600            # 1 s samples kept in memory: the last hour at ful
 ALERT_ON_S, ALERT_OFF_S = 5, 30  # an alert must hold this long to be logged as raised / cleared
 ALERT_DEFAULTS = {"delta": 30, "temp": 55, "over": 30, "notify": False,
                   "charge_done": False, "charge_early": False, "offline_charging": False}
+LAST_SEEN_SAVE_S = 300          # how often the last-known values are written to boards.json
+STORAGE_SETTLE_S = 600          # storage mode: no charger and not charging this long -> let the BMS sleep
 RUNTIME_CMDS = {"charge_allowed": COMM_BMS_SET_CHARGE_ALLOWED, "force_balance": COMM_BMS_FORCE_BALANCE}
 
 
@@ -68,6 +72,13 @@ class Board:
         self._stop = threading.Event()
         self._wake = threading.Event()
         self._paused = threading.Event()
+        # Resting: disconnected on purpose so the BMS can sleep (low SOC, or storage mode). It checks back every
+        # probe_s seconds. Saved in the profile so a restart doesn't start keeping the board awake again.
+        self._rest = (boards.get(self._last_mac).get("rest") if self._last_mac else None) or None
+        self._low_since = None        # SOC under the low-SOC threshold (not charging) since
+        self._settle_since = None     # storage mode: idle (no charger) since
+        self._seen_saved = 0.0
+        self.notices = []             # safety notices from safety.evaluate()
         self._thread = threading.Thread(target=self._run, name="board-%s" % host, daemon=True)
 
     # -- lifecycle ------------------------------------------------------------
@@ -89,11 +100,50 @@ class Board:
         self.state = "paused"
         self._note_state("freed", "disconnected so VESC Tool can connect")
 
-    def resume(self):
+    def resume(self, why="asked by you"):
         self._paused.clear()
+        was_resting = self._rest is not None
+        self._set_rest(None)
         self.state = "connecting"
+        self._wake.set()
         if self.mac:
-            self._event("reconnect", "reconnecting (asked by you)")
+            self._event("reconnect", "reconnecting (%s)%s" % (why, ", ending the rest" if was_resting else ""))
+
+    # -- resting (let the BMS sleep) -----------------------------------------
+
+    def _set_rest(self, rest):
+        self._rest = rest
+        mac = self.mac or self._last_mac
+        if mac:
+            self.boards.update(mac, rest=rest)
+
+    def resting(self):
+        return dict(self._rest) if self._rest else None
+
+    def rest(self, reason, probe_s, text):
+        """Disconnect and stay off so the BMS can sleep; reconnect briefly every probe_s to check on it."""
+        now = time.time()
+        self._set_rest({"reason": reason, "probe_s": float(probe_s), "since": now, "next": now + probe_s})
+        self._low_since = self._settle_since = None
+        self._event("rest", text, reason=reason)
+        if threading.current_thread() is not self._thread:
+            self._close()
+        self._wake.set()
+
+    def _rest_should_end(self, v):
+        """On a check-in: stay connected if the charger is in, or the reason for resting is gone."""
+        if v["is_charging"] or v["v_charge"] >= sessions.CHARGER_V:
+            return "the charger is connected"
+        r = self._rest or {}
+        if r.get("reason") == "low_soc":
+            st = safety.settings_from(self.boards.settings())
+            if not st["low_soc_on"]:
+                return "low-SOC disconnect is turned off"
+            if v["soc"] * 100 >= st["low_soc_pct"] + safety.LOW_SOC_HYST:
+                return "SOC is back to %.0f%%" % (v["soc"] * 100)
+        if r.get("reason") == "storage" and not (self.profile().get("storage") or {}).get("on"):
+            return "storage mode is off"
+        return None
 
     def set_link(self, link):
         """Switch between WiFi and Bluetooth (asked by you; it never switches by itself)."""
@@ -142,8 +192,29 @@ class Board:
                 self.state = "paused"
                 time.sleep(0.5)
                 continue
+            probing = False
+            if self._rest is not None:
+                left = self._rest["next"] - time.time()
+                if left > 0:
+                    self.state, self.error = "resting", ""
+                    self._wake.wait(min(left, 5.0))
+                    self._wake.clear()
+                    continue
+                probing = True
+                self._set_rest(dict(self._rest, next=time.time() + self._rest["probe_s"]))
             try:
                 self._connect_and_load()
+                if probing:
+                    v = parse_bms_values(self.client.get_bms_values_raw())
+                    self.values, self.values_time = v, time.time()
+                    self._save_seen(v, force=True)
+                    why = self._rest_should_end(v)
+                    if why is None:
+                        self._event("rest_check", "checked in: SOC %.0f%%, pack %.1f V, no charger; disconnecting "
+                                    "again so the BMS can sleep" % (v["soc"] * 100, v["v_tot"]))
+                        continue   # finally: closes the connection
+                    self._set_rest(None)
+                    self._event("rest_end", "staying connected: %s" % why)
                 self._poll_loop()
             except BoardBusy as e:
                 self.state, self.error = "busy", str(e)
@@ -155,13 +226,16 @@ class Board:
                 else:
                     if self.state == "online":
                         self._event("disconnected", str(e))
-                    self.state = "offline" if isinstance(e, (VescError, OSError)) else "error"
-                    self.error = str(e)
-                    self._note_state(self.state, str(e))
+                    if self._rest is not None:
+                        self.state, self.error = "resting", ""   # asleep, as intended
+                    else:
+                        self.state = "offline" if isinstance(e, (VescError, OSError)) else "error"
+                        self.error = str(e)
+                        self._note_state(self.state, str(e))
             finally:
                 self._close()
                 self._offline()
-            if self._paused.is_set():
+            if self._paused.is_set() or self._rest is not None:
                 continue
             self._wake.wait(RETRY_S)
             self._wake.clear()
@@ -248,7 +322,7 @@ class Board:
 
     def _poll_loop(self):
         last_ok = time.time()
-        while not self._stop.is_set() and not self._paused.is_set():
+        while not self._stop.is_set() and not self._paused.is_set() and self._rest is None:
             t0 = time.time()
             try:
                 v = parse_bms_values(self.client.get_bms_values_raw())
@@ -310,6 +384,40 @@ class Board:
                         ("charger connected, %.1f V" % v["v_charge"]) if charger else "charger disconnected")
         self._was_charger = charger
         self._check_alerts(v, cfg)
+        self._save_seen(v)
+        self._check_rest(v, t)
+
+    def _save_seen(self, v, force=False):
+        """Last-known values, so safety notices still work while the board is asleep or offline."""
+        now = time.time()
+        if not self.mac or (not force and now - self._seen_saved < LAST_SEEN_SAVE_S):
+            return
+        self._seen_saved = now
+        self.boards.update(self.mac, last_seen=safety.seen_record(v, now))
+
+    def _check_rest(self, v, t):
+        """Low SOC for too long, or storage mode settled: disconnect so the BMS can sleep."""
+        charger = v["is_charging"] or v["v_charge"] >= sessions.CHARGER_V
+        st = safety.settings_from(self.boards.settings())
+        if st["low_soc_on"] and not charger and v["soc"] * 100 < st["low_soc_pct"]:
+            self._low_since = self._low_since or t
+            if t - self._low_since >= st["low_soc_hours"] * 3600:
+                self._save_seen(v, force=True)
+                self.rest("low_soc", st["probe_hours"] * 3600, safety.low_soc_text(st, v["soc"]))
+                return
+        else:
+            self._low_since = None
+        prof = self.profile()
+        stor = prof.get("storage") or {}
+        if stor.get("on") and storage_mod.cfg(prof)["sleep"] and not charger:
+            self._settle_since = self._settle_since or t
+            if t - self._settle_since >= STORAGE_SETTLE_S:
+                self._save_seen(v, force=True)
+                self.rest("storage", st["probe_hours"] * 3600,
+                          "storage mode: settings applied and no charger, so disconnecting to let the BMS sleep "
+                          "(the tool checks back every %g h)" % st["probe_hours"])
+        else:
+            self._settle_since = None
 
     def _check_alerts(self, v, cfg):
         a = alert_settings(self.boards.settings())
@@ -442,7 +550,9 @@ class Board:
                "values_age": round(time.time() - self.values_time, 1) if self.values_time else None,
                "missed_polls": self.missed_polls,
                "events": list(self.events)[-20:], "charging_now": self.tracker.live(),
-               "pack_ah": prof.get("pack_ah")}
+               "pack_ah": prof.get("pack_ah"), "rest": self.resting(), "notices": list(self.notices),
+               "storage": prof.get("storage"), "storage_cfg": storage_mod.cfg(prof),
+               "last_seen": prof.get("last_seen")}
         lc = self.last_charge()
         if lc:
             out["last_charge"] = {k: lc.get(k) for k in ("id", "start", "end", "duration_s", "soc0", "soc1", "ah",

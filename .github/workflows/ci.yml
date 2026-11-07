@@ -64,6 +64,7 @@ jobs:
     name: Build macOS
     needs: test
     runs-on: macos-latest
+    timeout-minutes: 30  # usually ~8 min; hdiutil can hang on hosted runners, and the default wait is 6 h
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - run: ./release.sh macos

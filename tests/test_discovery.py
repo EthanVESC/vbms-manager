@@ -57,7 +57,7 @@ class TestScan(unittest.TestCase):
             self.assertEqual([e["host"] for e in app.state()["discovered"]], [m.host])
             app.add_host({"host": m.host})
             b = app.boards[m.host]
-            self.assertTrue(wait(lambda: b.mac is not None))
+            self.assertTrue(wait(lambda: b.mac is not None and b.config is not None, timeout=30))
             app.set_profile({"host": m.host, "nickname": "Garage"})
             self.assertEqual(app.state()["discovered"], [])          # added: not offered again
             n = len(m.received)

@@ -34,6 +34,9 @@ run_tests() {  # <arch> <runtime dir>
     (cd "$SRC" && "$rt/bin/python3" -B -E -s -m unittest discover -s tests -t .)
   elif command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1; then
     step "Unit tests with bundled Python ($arch, in Docker)"
+    # Drop the copy pulled for another arch: some Docker setups (GitHub's runners) refuse to
+    # pull the same pinned digest again for a second platform ("cannot overwrite digest").
+    docker image rm "$TEST_IMAGE" >/dev/null 2>&1 || true
     docker run --rm --platform "$(docker_platform_of "$arch")" -v "$SRC:/src:ro" -v "$rt:/rt:ro" -w /src \
       "$TEST_IMAGE" /rt/bin/python3 -B -E -s -m unittest discover -s tests -t .
   else

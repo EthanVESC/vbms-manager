@@ -42,7 +42,7 @@ It runs on your computer and shows its UI in your browser at `http://127.0.0.1:8
 | Linux PC | `VBMS-Manager-<version>-linux-x86_64.tar.gz` |
 | Raspberry Pi 3/4/5 with 64-bit OS | `VBMS-Manager-<version>-linux-arm64.tar.gz` |
 | Raspberry Pi with 32-bit OS | `VBMS-Manager-<version>-linux-armv7.tar.gz` |
-| Docker | `VBMS-Manager-<version>-docker-<amd64/arm64/armv7>.tar` (see [Docker](#docker)) |
+| Docker | `VBMS-Manager-<version>-docker-<amd64/arm64/armv7>.tar.gz` (see [Docker](#docker)) |
 | Python source (developers) | `VBMS-Manager-<version>-source.zip` |
 
 Then follow the [Quick start](#quick-start). The Mac and Windows apps aren't signed by Apple or Microsoft yet, so the first launch needs one extra click; step 2 says where.

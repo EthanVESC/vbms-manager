@@ -9,10 +9,11 @@ Pick one file under **Assets** below. Python is built in, so there's nothing els
 | Linux PC | `VBMS-Manager-{VERSION}-linux-x86_64.tar.gz` |
 | Raspberry Pi 3/4/5 with 64-bit OS | `VBMS-Manager-{VERSION}-linux-arm64.tar.gz` |
 | Raspberry Pi with 32-bit OS | `VBMS-Manager-{VERSION}-linux-armv7.tar.gz` |
-| Docker | `VBMS-Manager-{VERSION}-docker-<amd64/arm64/armv7>.tar` |
+| Docker | `VBMS-Manager-{VERSION}-docker-<amd64/arm64/armv7>.tar.gz` |
 | Python source (developers) | `VBMS-Manager-{VERSION}-source.zip` |
 
 **Mac:** open the DMG and drag VBMS Manager into Applications. It isn't notarized by Apple yet, so the first time macOS blocks it: click *Done*, then **System Settings → Privacy & Security → Open Anyway**.
+
 **Windows:** unzip, then double-click **VBMS Manager**. If Windows says it protected your PC, click *More info → Run anyway*.
 
 Setup steps: [Quick start](https://github.com/EthanVESC/vbms-manager#quick-start). `SHA256SUMS` lists every file's checksum.

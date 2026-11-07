@@ -280,7 +280,9 @@ class TestWriteFailures(Base):
         self.assertEqual(len(self.backups()), 2)
         for b in self.backups():
             p = os.path.join(store.home(), "backups", b["id"])
-            self.assertEqual(os.stat(p).st_mode & 0o777, 0o600)
+            self.assertTrue(os.path.exists(p))
+            if os.name != "nt":  # Windows has no owner-only mode bits
+                self.assertEqual(os.stat(p).st_mode & 0o777, 0o600)
 
     def limits(self, pct):
         start, end, _ = self.app.charge_target(self.b, {"pct": pct})

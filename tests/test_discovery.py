@@ -22,7 +22,7 @@ def closed_port():
 class TestScan(unittest.TestCase):
     def setUp(self):
         shutil.rmtree(TMP, ignore_errors=True)
-        os.makedirs(TMP)
+        os.makedirs(TMP, exist_ok=True)  # a slow previous test's board thread may have recreated it
         self.mocks = []
 
     def tearDown(self):

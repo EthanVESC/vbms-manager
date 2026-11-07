@@ -48,7 +48,7 @@ class TestLateReply(unittest.TestCase):
 class TestStall(unittest.TestCase):
     def setUp(self):
         shutil.rmtree(store.home(), ignore_errors=True)
-        os.makedirs(store.home())
+        os.makedirs(store.home(), exist_ok=True)  # a slow previous test's board thread may have recreated it
         self._saved = board_mod.REPLY_TIMEOUT_S, board_mod.LINK_GRACE_S
         board_mod.REPLY_TIMEOUT_S, board_mod.LINK_GRACE_S = 0.3, 2.5
         self.mock = mock_bms.MockBMS()

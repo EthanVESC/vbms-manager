@@ -37,7 +37,7 @@ def mac(b):
 class Base(unittest.TestCase):
     def setUp(self):
         shutil.rmtree(store.home(), ignore_errors=True)
-        os.makedirs(store.home())
+        os.makedirs(store.home(), exist_ok=True)  # a slow previous test's board thread may have recreated it
         self.mocks = []
         self.bridge = mock_ble_bridge.MockBridge()
         self.bridge.env()

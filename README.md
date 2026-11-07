@@ -13,6 +13,10 @@ A local tool for VESC **VBMS32** battery management systems (as used in VESC-con
 - use it from your phone on the same network (view-only until you pair the phone)
 - record history (power in/out, amps, volts, every cell and temperature), graph it, log every charge, get alerts, and export VESC Tool–compatible config backups
 
+![VBMS Manager: monitor and manage VESC VBMS32 battery management systems](feature-tour/00-vbms-manager.png)
+
+**[See the feature tour →](feature-tour/README.md)**
+
 It runs on your computer and shows its UI in your browser at `http://127.0.0.1:8642`. There are downloads for Mac, Windows and Linux (Python included, nothing else to install) and a Docker image, or run it from source with Python 3.8+. A **Setup guide** in the app walks through getting a VBMS onto WiFi.
 
 > [!CAUTION]

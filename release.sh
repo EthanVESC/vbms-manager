@@ -17,7 +17,7 @@ build_source() {
   step "Staging source $VERSION"
   rm -rf "$stage"; mkdir -p "$stage/$name"
   rsync -a --exclude '.git/' --exclude '.DS_Store' --exclude '__pycache__/' --exclude '*.pyc' \
-    --exclude '/build/' --exclude '/dist/' --exclude '/tests/fixtures/private/' "$SRC/" "$stage/$name/"
+    --exclude '/build/' --exclude '/dist/' --exclude '/tests/fixtures/private/' --exclude '/feature-tour/' "$SRC/" "$stage/$name/"
   leak_check "$stage/$name"
   pack "$stage/$name" "$DIST/VBMS-Manager-$VERSION-source.zip"
 }

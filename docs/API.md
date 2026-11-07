@@ -140,11 +140,11 @@ curl -s -H "Authorization: Bearer $KEY" -X POST "$VBMS/api/v1/all/charge-limit?d
 curl -s -H "Authorization: Bearer $KEY" -X POST "$VBMS/api/v1/all/charge-limit" -d '{"pct": 80}'
 
 # Pause charging on one board, allow it again
-curl -s -H "Authorization: Bearer $KEY" -X POST $VBMS/api/v1/boards/Bailey/charging -d '{"allowed": false}'
-curl -s -H "Authorization: Bearer $KEY" -X POST $VBMS/api/v1/boards/Bailey/charging -d '{"allowed": true}'
+curl -s -H "Authorization: Bearer $KEY" -X POST $VBMS/api/v1/boards/Street/charging -d '{"allowed": false}'
+curl -s -H "Authorization: Bearer $KEY" -X POST $VBMS/api/v1/boards/Street/charging -d '{"allowed": true}'
 
 # Cell voltages
-curl -s -H "Authorization: Bearer $KEY" $VBMS/api/v1/boards/Ethan/cells
+curl -s -H "Authorization: Bearer $KEY" $VBMS/api/v1/boards/Trail/cells
 
 # Everything into storage for the winter
 curl -s -H "Authorization: Bearer $KEY" -X POST $VBMS/api/v1/all/storage -d '{"on": true}'

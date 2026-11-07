@@ -130,7 +130,8 @@ jobs:
           v=$(sed -n 's/^VERSION = "\(.*\)"$/\1/p' vbms_manager.py)
           (cd release && sha256sum VBMS-Manager-* > SHA256SUMS && cat SHA256SUMS)
           pre=; case "$v" in *-*) pre=--prerelease ;; esac
-          gh release create "$GITHUB_REF_NAME" release/* --draft $pre --title "VBMS Manager $v" --generate-notes
+          sed "s/{VERSION}/$v/g" .github/release-notes.md > "$RUNNER_TEMP/notes.md"
+          gh release create "$GITHUB_REF_NAME" release/* --draft $pre --title "VBMS Manager $v" --notes-file "$RUNNER_TEMP/notes.md" --generate-notes
 
   docker-publish:
     name: Push Docker image to ghcr.io

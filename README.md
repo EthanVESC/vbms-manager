@@ -31,6 +31,24 @@ It runs on your computer and shows its UI in your browser at `http://127.0.0.1:8
 
 ---
 
+## Download
+
+**[Get the latest version from Releases →](https://github.com/EthanVESC/vbms-manager/releases/latest)** Python is built in, so there's nothing else to install. Under **Assets**, pick the file for your computer:
+
+| Your computer | Download |
+|---|---|
+| Mac (Apple Silicon or Intel) | `VBMS-Manager-<version>-macos.dmg` |
+| Windows (64-bit) | `VBMS-Manager-<version>-windows-x64.zip` |
+| Linux PC | `VBMS-Manager-<version>-linux-x86_64.tar.gz` |
+| Raspberry Pi 3/4/5 with 64-bit OS | `VBMS-Manager-<version>-linux-arm64.tar.gz` |
+| Raspberry Pi with 32-bit OS | `VBMS-Manager-<version>-linux-armv7.tar.gz` |
+| Docker | `VBMS-Manager-<version>-docker-<amd64/arm64/armv7>.tar` (see [Docker](#docker)) |
+| Python source (developers) | `VBMS-Manager-<version>-source.zip` |
+
+Then follow the [Quick start](#quick-start). The Mac and Windows apps aren't signed by Apple or Microsoft yet, so the first launch needs one extra click; step 2 says where.
+
+---
+
 ## Quick start
 
 1. **Set up the BMS once in VESC Tool** (over USB or BLE), on the BMS's custom config page:
@@ -38,7 +56,7 @@ It runs on your computer and shows its UI in your browser at `http://127.0.0.1:8
    - **TCP Local** = enabled (VESC's protocol on port 65102)
    - Optional: give each board its own **BLE name** so they're easy to tell apart
    - Write the config. Once the BMS is awake (for example on the charger), it joins your WiFi.
-2. **Run the tool**
+2. **Run the tool** ([downloads](#download))
    - **Mac:** open the DMG and drag **VBMS Manager** into Applications, then open it. The beta isn't notarized by Apple, so the first time macOS blocks it: click *Done*, then go to **System Settings → Privacy & Security → Open Anyway**. You only do this once. It lives in the menu bar (battery icon), with no Dock icon, and starts when you log in so schedules keep running. The menu has *Open VBMS Manager*, *Use from Phones on This Network*, *Open at Login*, *Show Data Folder*, *Show Log* and *Quit*. Its log is in `~/Library/Logs/VBMS Manager/`.
    - **Windows:** unzip the Windows download and double-click **VBMS Manager** (`VBMS Manager.cmd`) in the folder. The beta isn't signed, so if Windows says it protected your PC, click *More info → Run anyway*. A console window stays open while it runs; close it to stop. Its *Read Me First.txt* covers starting it at login.
    - **Linux** (PC or Raspberry Pi): unpack the download for your CPU and run `./vbms-manager`, or `./install.sh` to add it to your apps. `./install.sh --service --lan` runs it in the background at every boot, for an always-on computer. See [Running on an always-on computer](#running-on-an-always-on-computer).
